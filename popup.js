@@ -175,7 +175,7 @@ async function classify(force) {
   $("run").textContent = t("rerun", lang);
   const tokens = res.data.usage?.input_tokens;
   $("meta").textContent = res.data.cached
-    ? t("cachedMeta", lang)
+    ? t(res.data.source === "fetch" ? "fetchedMeta" : "cachedMeta", lang)
     : tokens
     ? t("usageMeta", lang, {
         tokens: tokens.toLocaleString(),
@@ -202,7 +202,7 @@ $("options").addEventListener("click", () => chrome.runtime.openOptionsPage());
   if (res?.data) {
     render(res.data);
     $("run").textContent = t("rerun", lang);
-    $("meta").textContent = t("cachedMeta", lang);
+    $("meta").textContent = t(res.data.source === "fetch" ? "fetchedMeta" : "cachedMeta", lang);
   } else {
     message(t("notJudged", lang));
   }

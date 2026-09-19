@@ -110,10 +110,13 @@ async function classifyTab(tab, { force = false } = {}) {
   const key = cacheKey(tab.url, fp, "page");
 
   if (!force) {
-    const cached = await readCache(key);
+    // 検索結果から本文を取得して判定済みなら、それを使い回す。
+    // ただし Cookie もスクリプトも無い状態で取ったものなので、出所は明示する
+    // （黙って実訪問の判定として出さない。再判定ボタンで上書きできる）。
+    const cached = (await readCache(key)) ?? (await readCache(cacheKey(tab.url, fp, "fetch")));
     if (cached) {
       await paintBadge(tab.id, cached, config);
-      return { ...cached, cached: true, config };
+      return { ...cached, cached: true, source: cached.src ?? "page", config };
     }
   }
 
@@ -127,6 +130,7 @@ async function classifyTab(tab, { force = false } = {}) {
   const raw = await callJev(state, buildQuestions(config), lang);
   const result = {
     url: tab.url,
+    src: "page",
     answers: raw.answers,
     usage: raw.usage ?? null,
     signals: {
@@ -139,7 +143,7 @@ async function classifyTab(tab, { force = false } = {}) {
 
   await writeCache(key, result);
   await paintBadge(tab.id, result, config);
-  return { ...result, cached: false, config };
+  return { ...result, cached: false, source: "page", config };
 }
 
 // --- バッジ ---------------------------------------------------------------
@@ -353,7 +357,20 @@ async function fetchJudge(url, config) {
   if (!hit) {
     const state = await fetchState(url, lang);
     const raw = await callJev(state, buildQuestions(config), lang);
-    hit = { url, answers: raw.answers, usage: raw.usage ?? null };
+    hit = {
+      url,
+      src: "fetch",
+      answers: raw.answers,
+      usage: raw.usage ?? null,
+      // ポップアップで使い回すので、実訪問と同じ形にしておく。
+      // 無いと「アフィリエイトリンク 0本」と嘘をつくことになる。
+      signals: {
+        affiliate_link_count: state.link_profile.affiliate_link_count,
+        affiliate_networks: state.link_profile.affiliate_networks,
+        price_mentions: state.purchase_signals.price_mentions,
+        external_link_count: state.link_profile.external_link_count,
+      },
+    };
     await writeCache(key, hit);
   }
   return toVerdict(hit, config, "fetch");
@@ -405,12 +422,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       } else if (msg.type === "peek") {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         const config = await loadConfig();
+        const fp = configFingerprint(config);
         const cached = tab?.url
-          ? await readCache(cacheKey(tab.url, configFingerprint(config), "page"))
+          ? (await readCache(cacheKey(tab.url, fp, "page"))) ??
+            (await readCache(cacheKey(tab.url, fp, "fetch")))
           : null;
         sendResponse({
           ok: true,
-          data: cached ? { ...cached, cached: true } : null,
+          data: cached ? { ...cached, cached: true, source: cached.src ?? "page" } : null,
           url: tab?.url,
           config,
         });

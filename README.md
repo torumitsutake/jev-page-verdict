@@ -183,6 +183,11 @@ deliberately not built. Four reasons, in order of weight:
   and empty SPA shells come back instead of the page. A body shorter than 400 characters is
   rejected rather than judged, but this is a real accuracy ceiling.
 
+A verdict obtained this way is kept, so opening the page later shows it instead of spending a
+second request. The popup labels it *from fetched page* rather than presenting it as a verdict from
+the real visit, and pressing Judge again replaces it with one — the two are not interchangeable,
+because what a fetch returns is the logged-out, script-less version of the page.
+
 Cost is the least of it: ~$0.0126 per 100-result search against ~$0.0004 for snippets.
 
 Clicking keeps every one of these bounded. Fetches are made with `credentials: "omit"`, capped at

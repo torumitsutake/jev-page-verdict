@@ -42,6 +42,7 @@ const S = {
   openOptions: { en: "Settings", ja: "設定" },
   failed: { en: "Could not judge this page.", ja: "判定に失敗しました。" },
   cachedMeta: { en: "saved verdict", ja: "保存済みの判定" },
+  fetchedMeta: { en: "from fetched page", ja: "取得した本文から" },
   usageMeta: { en: "{tokens} tokens · {classes} classes", ja: "{tokens} トークン・{classes}分類" },
 
   undecided: { en: "Undecided", ja: "判定できず" },
