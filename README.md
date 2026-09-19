@@ -64,7 +64,7 @@ reloaded automatically.** The popup and options page pick up changes when you re
 
 ## What it asks
 
-One request carries eight questions, evaluated in parallel (speculative fan-out). Extra questions
+One request carries nine questions, evaluated in parallel (speculative fan-out). Extra questions
 barely cost latency, so the design **adds axes instead of stacking labels onto one axis.**
 
 | Question | Type | Returns |
@@ -77,6 +77,7 @@ barely cost latency, so the design **adds axes instead of stacking labels onto o
 | `firsthand` | Noul | Does the author describe using it themselves? |
 | `sponsored_disclosure` | Noul | Is PR or affiliate involvement disclosed? |
 | `thin_content` | Noul | Is the body padded or restated? |
+| `machine_written` | Noul | Does it read as machine-generated rather than written by someone with something to say? |
 
 ### Six genre classes is the ceiling
 
@@ -93,6 +94,12 @@ Resolution comes from axes instead. Four axes give several hundred combinations,
 article shows up as `genre=Selling × stance=Incentivized × publisher=Individual`. No dedicated
 label needed.
 
+"Machine-generated" is deliberately **not** a genre. Purpose and quality are different questions:
+an auto-generated affiliate page is `Selling` *and* machine-written, an auto-generated tutorial is
+`Reference` *and* machine-written. As a genre label it overlaps with every other label at once and
+the probability splits every time, which is the same failure as above in its worst form. It is a
+Noul, answered independently of whatever the genre turns out to be.
+
 `product` answers the question the other axes cannot: for a page showing something you can buy,
 **is this the brand itself, a shop the brand sanctions, someone's marketplace listing, or an
 outsider promoting it for a cut?** `stance` is about the writer's interest, which is a different
@@ -107,7 +114,7 @@ English description. Enabling a parent label together with a label that splits i
 |---|---|---|
 | Minimal | 4 | Only whether it is selling. Confidence is steadiest here |
 | Standard | 6 | Five non-overlapping labels plus none-of-the-above. Default |
-| Detailed | 9 | Splits out affiliate, storefront and official. Confidence drops, so lower the thresholds |
+| Detailed | 8 | Splits out affiliate, storefront and official. Confidence drops, so lower the thresholds |
 
 Your own label's English description becomes the criteria sent to Jev verbatim. Accuracy is decided
 by how you write it, so keep it from overlapping the others.

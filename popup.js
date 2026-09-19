@@ -120,11 +120,14 @@ function render(data) {
     flag("firsthand", t("factFirsthand", lang)) +
     flag("sponsored_disclosure", t("factSponsored", lang)) +
     flag("thin_content", t("factThin", lang)) +
+    flag("machine_written", t("factMachine", lang)) +
     `<div class="fact"><span class="dot${aff > 0 ? " on" : ""}"></span>
        <span>${esc(t("factAffiliate", lang))}</span>
        <span class="fact-val">${esc(t("countLinks", lang, { n: aff }))}</span></div>`;
   const hitCount =
-    ["firsthand", "sponsored_disclosure", "thin_content"].filter((k) => (a[k]?.noul ?? 0) >= 0.5)
+    ["firsthand", "sponsored_disclosure", "thin_content", "machine_written"].filter(
+      (k) => (a[k]?.noul ?? 0) >= 0.5
+    )
       .length + (aff > 0 ? 1 : 0);
 
   // --- 内訳 ---

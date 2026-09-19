@@ -65,6 +65,7 @@ const S = {
   factFirsthand: { en: "Describes first-hand use", ja: "自分で使った話が書かれている" },
   factSponsored: { en: "Discloses PR or affiliate links", ja: "PR・アフィリエイトの表示がある" },
   factThin: { en: "Thin or restated content", ja: "中身が薄い・引き写しが多い" },
+  factMachine: { en: "Reads as machine-generated", ja: "機械が書いたように読める" },
   factAffiliate: { en: "Affiliate links", ja: "アフィリエイトリンク" },
   countLinks: { en: "{n}", ja: "{n}本" },
   countHits: { en: "{n}", ja: "{n}件" },

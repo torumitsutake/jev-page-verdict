@@ -83,11 +83,6 @@ export const GENRE_CATALOG = {
     criteria: "Fiction, poetry, diary, or a personal essay not centred on evaluating anything.",
     splits: "experience",
   },
-  lowquality: {
-    name: { en: "Low quality", ja: "低品質・自動生成" },
-    criteria:
-      "Scraped, auto-generated, or content-farm output with no identifiable author or original information.",
-  },
 };
 
 export const OTHER_KEY = "other";
@@ -117,12 +112,12 @@ export const PRESETS = {
     genres: ["commerce", "experience", "explainer"],
   },
   detailed: {
-    name: { en: "Detailed (9 classes)", ja: "詳細（9分類）" },
+    name: { en: "Detailed (8 classes)", ja: "詳細（8分類）" },
     note: {
       en: "Overlapping labels cost confidence. Lower the thresholds to match.",
       ja: "ラベルが重なるぶん確信度は下がる。閾値を下げて使うこと。",
     },
-    genres: ["affiliate", "ecommerce", "experience", "news", "explainer", "official", "discussion", "lowquality"],
+    genres: ["affiliate", "ecommerce", "experience", "news", "explainer", "official", "discussion"],
   },
 };
 
@@ -325,6 +320,14 @@ export function buildQuestions(config) {
       instructions:
         "The body is padded, generic, or mostly restates the product description without adding information.",
     },
+    // 「機械が書いたか」は目的ではなく品質の属性で、genre のどのラベルとも直交する。
+    // genre 軸に置くと全ラベルと意味が重なって確率が割れるため、独立した Noul にしてある。
+    // 「AI っぽいか」ではなく、state から確かめられる証拠で書くこと。
+    machine_written: {
+      type: "noul",
+      instructions:
+        "Reads as machine-generated or mass-produced rather than written by a person with something to say: no identifiable author, no dates or specifics that only someone actually present would know, uniform section structure, and wording that restates common knowledge without committing to anything.",
+    },
   };
 
   if (config.axes?.stance) {
@@ -404,7 +407,6 @@ const FIRSTHAND = new Set(["experience", "discussion", "creative", "opinion"]);
 export const VERDICT_COLORS = {
   selling: "#b4341f",
   firsthand: "#2f7a4e",
-  lowquality: "#8a6d1f",
   neutral: "#33566e",
   unknown: "#697480",
 };
@@ -413,7 +415,6 @@ export function verdictColor(key, known = true) {
   if (!known || !key) return VERDICT_COLORS.unknown;
   if (SELLING.has(key)) return VERDICT_COLORS.selling;
   if (FIRSTHAND.has(key)) return VERDICT_COLORS.firsthand;
-  if (key === "lowquality") return VERDICT_COLORS.lowquality;
   if (key === OTHER_KEY) return VERDICT_COLORS.unknown;
   return VERDICT_COLORS.neutral;
 }
