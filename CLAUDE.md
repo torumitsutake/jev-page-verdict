@@ -28,10 +28,12 @@
 
 ```
 manifest.json    MV3 マニフェスト
+logo.png         ロゴ原寸。icons/ はここから sips で書き出す
 extract.js       ページから判定材料を抜き出す（executeScript で注入される関数）
 questions.js     質問定義・ラベル辞書・プリセット・閾値・色。調整はここに集約
 i18n.js          UI の文言だけ。判定に関わる定義は置かない
-background.js    API 呼び出し、キャッシュ、バッジ、検索結果の判定
+background.js    API 呼び出し、キャッシュ、バッジ、検索結果の判定、本文の取得
+offscreen.html/js  取得した HTML のパース専用。service worker に DOMParser が無い
 serp.js/.css     Google 検索結果の色分け。設定でオンにしたときだけ動的登録される
 popup.html/js    判定結果の表示
 options.html/js  APIキー・分類設定・表示言語・表示設定
@@ -106,17 +108,35 @@ criteria は「AI っぽいか」ではなく、state から確かめられる�
 「商品ページではない」が該当なしにあたる。これを外すと、商品と無関係なページで確率が
 他の4つに散って毎回 confidence を割る。
 
-### 9. 検索結果の色分けは2段階で、既定は両方オフ
+### 9. 検索結果の色分けは3段階で、既定は全部オフ
 
 `serp.enabled` はキャッシュにある判定だけを描く（送信ゼロ）。`serp.snippet` を足すと
-未判定の結果をスニペットから推定する。オンにするとき `chrome.permissions.request` で
-Google 検索ページの許可を取り、`chrome.scripting.registerContentScripts` で登録する。
+未判定の結果をスニペットから推定する。`serp.fetch` を足すと、押した1件だけ本文を取得する
+（設計判断10）。オンにするとき `chrome.permissions.request` で許可を取り、
+`chrome.scripting.registerContentScripts` で登録する。
 **マニフェストに静的な content_scripts を書かないこと**（設計判断4と同じ理由）。
+
+要求する権限の範囲は分けてある。色分け本体は Google の検索ページだけ、本文取得だけが
+全サイト（結果のドメインが事前に分からないため）。まとめて要求しないこと。
 
 スニペット推定は材料が `extract.js` の数値を1つも含まない。断定させず点線で描き、
 `CONFIDENCE.snippet` を割ったら何も描かない。間違った色を置くより無色のほうがまし。
 
-### 10. content script は色も文言も件数も持たない
+### 10. 本文の取得はクリックした1件だけ。全件自動にしない
+
+検索結果の本文を全件取りに行くのは、技術的には可能だが作らない。理由は4つあり、
+重い順に「開いてもいないページの全文が検索のたびに外へ出る（設計判断4と同じ位置）」
+「攻撃者が SEO で載せたページの本文が、人間の判断を挟まず state に入る」
+「自分の IP から検索ごとに数十ドメインへ自動アクセスする挙動になる」
+「Cookie もスクリプトも無い fetch では同意画面や空の SPA シェルが返り、それを
+本文として判定してしまう」。コストは一番小さい問題。
+
+取得まわりの決まり: `credentials: "omit"`（ログイン済みの中身を外に出さない）、
+`fetchMaxBytes` / `fetchTimeoutMs` で打ち切り、`fetchMinBodyChars` 未満は判定せず
+エラーを返す。キャッシュの src は `fetch` で、実訪問の `page` とは分ける。
+ポップアップは `page` しか見ないので、取得した判定がそちらに漏れることはない。
+
+### 11. content script は色も文言も件数も持たない
 
 `serp.js` は background が組み立てた `{ color, chip, title }` を描くだけで、
 上限も `serpConfig` メッセージで受け取る。ラベル・閾値・定数を `questions.js` の外に
@@ -138,11 +158,10 @@ Google 検索ページの許可を取り、`chrome.scripting.registerContentScri
 3. OpenRouter / Vercel AI Gateway 対応。TypeSafe 本体は早期アクセスで
    ウェイトリスト待ちが多いため、エンドポイントと認証を設定で切り替えられるようにする。
    Gateway 経由ならリクエスト単位の Zero Data Retention も指定できる。
-4. アイコン 16/48/128 PNG。バッジが乗るので単色の下地でよい。
-5. スクリーンショットか GIF。
-6. eval ハーネス（URL リスト → 正解率と confidence 分布）。
-7. スニペット推定の正解率測定。本文判定とは別に測る（材料が違うので別物）。
-8. awesome-jev への PR。
+4. スクリーンショットか GIF。
+5. eval ハーネス（URL リスト → 正解率と confidence 分布）。
+6. スニペット推定と本文取得の正解率測定。実訪問の判定とは別に測る（材料が違うので別物）。
+7. awesome-jev への PR。
 
 ## 既知の弱点
 

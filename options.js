@@ -10,6 +10,8 @@ import {
 } from "./questions.js";
 import { LANG_CHOICES, resolveLang, applyI18n, pick, t } from "./i18n.js";
 
+const ALL_SITES = ["http://*/*", "https://*/*"];
+
 const $ = (id) => document.getElementById(id);
 let config;
 let lang = "en";
@@ -139,6 +141,7 @@ function renderSerp() {
       t("serpSnippetNote", lang, { n: SERP.maxPerPage }),
       !config.serp.enabled,
     ],
+    ["fetch", t("serpFetch", lang), t("serpFetchNote", lang), !config.serp.enabled],
   ];
   $("serp").innerHTML = rows
     .map(
@@ -209,8 +212,11 @@ $("serp").addEventListener("change", async (e) => {
   if (!key) return;
   $("serpWarn").textContent = "";
 
-  if (key === "enabled" && e.target.checked) {
-    const granted = await chrome.permissions.request({ origins: SERP.origins }).catch(() => false);
+  if (e.target.checked) {
+    // 本文取得は結果のドメインが事前に分からないので全サイトの許可が要る。
+    // 色分け本体は Google の検索ページだけ。要求する範囲を分けてある。
+    const origins = key === "fetch" ? ALL_SITES : SERP.origins;
+    const granted = await chrome.permissions.request({ origins }).catch(() => false);
     if (!granted) {
       e.target.checked = false;
       $("serpWarn").textContent = t("serpPermDenied", lang);
@@ -219,7 +225,11 @@ $("serp").addEventListener("change", async (e) => {
   }
 
   const next = { ...config.serp, [key]: e.target.checked };
-  if (!next.enabled) next.snippet = false; // 親を切ったら子も切る
+  if (!next.enabled) {
+    // 親を切ったら子も切る
+    next.snippet = false;
+    next.fetch = false;
+  }
   config = await saveConfig({ serp: next });
   await chrome.runtime.sendMessage({ type: "syncSerp" });
   renderSerp();

@@ -82,6 +82,24 @@ const S = {
     ja: "検索結果のスニペットだけからの推定",
   },
   serpFromPage: { en: "Judged from the full page", ja: "ページ本文からの判定" },
+  serpFromFetch: {
+    en: "Judged from the fetched page, without cookies or scripts",
+    ja: "取得したページ本文からの判定（Cookie とスクリプトなし）",
+  },
+  serpCheck: { en: "check", ja: "本文で確かめる" },
+  serpChecking: { en: "checking…", ja: "取得中…" },
+  serpCheckFailed: { en: "could not read", ja: "読めず" },
+
+  errFetch: {
+    en: "Could not fetch that page.",
+    ja: "そのページを取得できませんでした。",
+  },
+  errFetchStatus: { en: "The site answered {status}.", ja: "サイトが {status} を返しました。" },
+  errNotHtml: { en: "That link is not an HTML page.", ja: "そのリンクは HTML ページではありません。" },
+  errFetchThin: {
+    en: "Fetched, but there was no readable body — likely a consent wall, a login, or a page built by scripts.",
+    ja: "取得はできましたが本文がありません。同意画面・ログイン・スクリプトで組み立てるページのいずれかです。",
+  },
 
   /* --- background が返すエラー --- */
   errNoKey: {
@@ -189,6 +207,11 @@ const S = {
   serpSnippetNote: {
     en: "Sends the title, URL and snippet that Google already shows to Jev, for every result on the page (up to {n}). The page body behind the link is never fetched. Estimates are drawn dotted and never stated as fact.",
     ja: "Google が既に表示しているタイトル・URL・スニペットを、そのページに出ている結果すべて（最大{n}件）について Jev に送ります。リンク先の本文は取得しません。推定は点線で描かれ、断定はしません。",
+  },
+  serpFetch: { en: "Let me fetch a result's page on click", ja: "クリックした結果の本文を取得する" },
+  serpFetchNote: {
+    en: "Adds a button to each result. Pressing it fetches that one page and judges its body — the same judgement the toolbar icon gives, without visiting. Nothing is fetched until you press it. Turning this on asks for permission to read any site, because the results are not known in advance; cookies are never sent.",
+    ja: "各結果にボタンが出ます。押すとその1件だけ本文を取得して判定します（アイコンを押したときと同じ判定を、訪問せずに行う）。押すまで何も取得しません。結果のドメインは事前に分からないため、オンにするとき全サイトを読む許可を求めます。Cookie は送りません。",
   },
   serpPermDenied: {
     en: "Permission was not granted, so the setting stays off.",

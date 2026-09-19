@@ -2,7 +2,7 @@
  * Google の検索結果に色帯を付ける content script。
  *
  * ここは描くだけ。色も文言も件数の上限も background から受け取る
- * （閾値と定数を questions.js の外に散らさないため。content script は
+ * （ラベル・閾値・定数を questions.js の外に散らさないため。content script は
  * ES モジュールを import できないので、この形でないと二重化する）。
  *
  * 設定でオンにして許可を取ったときだけ chrome.scripting.registerContentScripts で
@@ -10,7 +10,7 @@
  */
 (() => {
   const done = new Set(); // 処理済みの URL
-  let limits = null; // background から受け取る上限
+  let limits = null; // background から受け取る上限と文言
   let budget = 0; // このページで残り何件見るか
   let running = false;
   let timer = null;
@@ -76,18 +76,42 @@
 
   /* --- 描画 ------------------------------------------------------------ */
 
-  function paint(block, verdict) {
-    if (!block || !verdict || block.dataset.pvPainted) return;
-    block.dataset.pvPainted = "1";
+  function chipOf(block) {
+    return block.querySelector(":scope > .pv-chip");
+  }
+
+  function ensureChip(block) {
+    let chip = chipOf(block);
+    if (!chip) {
+      chip = document.createElement("span");
+      chip.className = "pv-chip";
+      block.insertAdjacentElement("afterbegin", chip);
+    }
+    return chip;
+  }
+
+  function paint(block, verdict, url) {
+    if (!block || !verdict) return;
     block.classList.add("pv-block");
-    if (verdict.estimated) block.classList.add("pv-estimated");
+    block.classList.toggle("pv-estimated", !!verdict.estimated);
     block.style.setProperty("--pv-color", verdict.color);
 
-    const chip = document.createElement("span");
-    chip.className = "pv-chip";
+    const chip = ensureChip(block);
+    chip.classList.remove("pv-ghost", "pv-failed");
     chip.textContent = verdict.chip;
     chip.title = verdict.title || "";
-    block.insertAdjacentElement("afterbegin", chip);
+    // 推定のままの結果は、押せば本文で確かめられる。確定済みは押せない。
+    if (limits?.fetchMode && verdict.src === "snippet") chip.dataset.pvUrl = url;
+    else delete chip.dataset.pvUrl;
+  }
+
+  /** 判定が無い結果に「本文で確かめる」ボタンだけ置く。 */
+  function paintGhost(block, url) {
+    if (!block || !limits?.fetchMode || chipOf(block)) return;
+    const chip = ensureChip(block);
+    chip.classList.add("pv-ghost");
+    chip.textContent = limits.labels.check;
+    chip.dataset.pvUrl = url;
   }
 
   /* --- 実行 ------------------------------------------------------------ */
@@ -109,24 +133,26 @@
     const cached = await ask({ type: "serpLookup", urls: payload.map((it) => it.url) });
     if (!cached?.ok) return false;
     for (const [url, verdict] of Object.entries(cached.verdicts ?? {})) {
-      if (verdict) paint(byUrl.get(url), verdict);
+      if (verdict) paint(byUrl.get(url), verdict, url);
     }
 
     // 2. 残りをスニペットから推定する（設定でオンのときだけ）。
-    if (!cached.snippetMode) return true;
     const rest = payload.filter((it) => !cached.verdicts?.[it.url]);
-    if (!rest.length) return true;
+    if (cached.snippetMode && rest.length) {
+      const judged = await ask({ type: "serpJudge", items: rest });
+      if (!judged?.ok) return false;
+      for (const [url, verdict] of Object.entries(judged.verdicts ?? {})) {
+        if (verdict) paint(byUrl.get(url), verdict, url);
+      }
+      // レート制限やキー拒否が出たら、このページではもう投げない。
+      if (judged.halted) {
+        console.warn("[Page Verdict]", judged.halted);
+        budget = 0;
+      }
+    }
 
-    const judged = await ask({ type: "serpJudge", items: rest });
-    if (!judged?.ok) return false;
-    for (const [url, verdict] of Object.entries(judged.verdicts ?? {})) {
-      if (verdict) paint(byUrl.get(url), verdict);
-    }
-    // レート制限やキー拒否が出たら、このページではもう投げない。
-    if (judged.halted) {
-      console.warn("[Page Verdict]", judged.halted);
-      budget = 0;
-    }
+    // 3. それでも判定が無いものに、押したら取りに行くボタンを置く。
+    for (const { url } of payload) paintGhost(byUrl.get(url), url);
     return true;
   }
 
@@ -151,6 +177,40 @@
       running = false;
     }
   }
+
+  /* --- 押されたら、その1件だけ本文を取りに行く ------------------------- */
+
+  document.addEventListener(
+    "click",
+    async (e) => {
+      const chip = e.target?.closest?.(".pv-chip[data-pv-url]");
+      if (!chip) return;
+      // チップは結果のリンクの外にあるが、念のため遷移させない。
+      e.preventDefault();
+      e.stopPropagation();
+      if (chip.dataset.pvBusy) return;
+
+      const url = chip.dataset.pvUrl;
+      const before = chip.textContent;
+      chip.dataset.pvBusy = "1";
+      chip.textContent = limits.labels.checking;
+
+      const res = await ask({ type: "serpFetch", url });
+      delete chip.dataset.pvBusy;
+
+      if (res?.ok && res.verdict) {
+        paint(chip.closest(".pv-block") || chip.parentElement, res.verdict, url);
+      } else if (res?.ok) {
+        // 取れたが confidence が足りない。断定しないので何も言わない。
+        chip.textContent = before;
+      } else {
+        chip.classList.add("pv-failed");
+        chip.textContent = limits.labels.failed;
+        chip.title = res?.error ?? "";
+      }
+    },
+    true
+  );
 
   function schedule() {
     clearTimeout(timer);

@@ -170,6 +170,8 @@ function toVerdict(result, config, src) {
   const g = result?.answers?.genre;
   const conf = g?.confidence ?? 0;
   const floor = src === "snippet" ? CONFIDENCE.snippet : CONFIDENCE.hint;
+  const noteKey =
+    src === "snippet" ? "serpFromSnippet" : src === "fetch" ? "serpFromFetch" : "serpFromPage";
   // 該当なしに色を付けても読み手の役に立たない。無色のまま置く。
   if (!g || g.choice === OTHER_KEY || conf < floor) return null;
 
@@ -190,7 +192,7 @@ function toVerdict(result, config, src) {
         ? `${labelOf("genre", g.choice, config)} · ${t("serpEstimated", lang)}`
         : labelOf("genre", g.choice, config),
     title: [
-      t(src === "snippet" ? "serpFromSnippet" : "serpFromPage", lang),
+      t(noteKey, lang),
       stanceLabel,
       `${Math.round(conf * 100)}%`,
     ]
@@ -204,9 +206,18 @@ async function serpLookup(urls, config) {
   const fp = configFingerprint(config);
   const out = {};
   for (const url of urls.slice(0, SERP.batchSize)) {
-    const page = await readCache(cacheKey(url, fp, "page"));
-    const hit = page ?? (config.serp?.snippet ? await readCache(cacheKey(url, fp, "snippet")) : null);
-    out[url] = hit ? toVerdict(hit, config, page ? "page" : "snippet") : null;
+    // 強い順に見る。本文 > 取得した本文 > スニペット推定。
+    let src = "page";
+    let hit = await readCache(cacheKey(url, fp, "page"));
+    if (!hit) {
+      hit = await readCache(cacheKey(url, fp, "fetch"));
+      src = "fetch";
+    }
+    if (!hit && config.serp?.snippet) {
+      hit = await readCache(cacheKey(url, fp, "snippet"));
+      src = "snippet";
+    }
+    out[url] = hit ? toVerdict(hit, config, src) : null;
   }
   return out;
 }
@@ -264,6 +275,90 @@ async function serpJudge(items, config) {
   return { verdicts: out, halted: halt ? String(halt.message) : null };
 }
 
+/* --- クリックした1件だけ本文を取りに行く ------------------------------- *
+ *
+ * 全件を自動で取りに行かない理由:
+ *  - 開いてもいないページの全文が、検索のたびに外部へ出ることになる（設計判断4）
+ *  - 自分の IP から検索ごとに数十ドメインへ自動アクセスする挙動になる
+ *  - 検索結果には攻撃者が SEO で載せたページも混ざる。人間の判断を挟まずに
+ *    その本文を state に入れるのは、インジェクションの的を自分で広げる
+ * ユーザーが押した1件だけにすれば、どれも今までと同じ性質に戻る。
+ * ------------------------------------------------------------------------ */
+
+let offscreenPending = null;
+
+async function ensureOffscreen() {
+  if (await chrome.offscreen.hasDocument()) return;
+  // 同時に複数走ると "Only a single offscreen document" で落ちるのでまとめる。
+  if (!offscreenPending) {
+    offscreenPending = chrome.offscreen
+      .createDocument({
+        url: "offscreen.html",
+        reasons: ["DOM_PARSER"],
+        justification: "Parse a fetched search result page to extract judgement signals.",
+      })
+      .catch(async (err) => {
+        if (!(await chrome.offscreen.hasDocument())) throw err;
+      })
+      .finally(() => {
+        offscreenPending = null;
+      });
+  }
+  await offscreenPending;
+}
+
+async function fetchState(url, lang) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SERP.fetchTimeoutMs);
+  let res;
+  try {
+    // Cookie は送らない。ログイン済みの中身を外に出さないため。
+    res = await fetch(url, { credentials: "omit", redirect: "follow", signal: controller.signal });
+  } catch {
+    throw new Error(t("errFetch", lang));
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) throw new Error(t("errFetchStatus", lang, { status: res.status }));
+  if (!/text\/html|application\/xhtml/i.test(res.headers.get("content-type") || "")) {
+    throw new Error(t("errNotHtml", lang));
+  }
+
+  const html = (await res.text()).slice(0, SERP.fetchMaxBytes);
+  await ensureOffscreen();
+  const parsed = await chrome.runtime.sendMessage({
+    target: "offscreen",
+    type: "parseHtml",
+    html,
+    url: res.url || url,
+  });
+  if (!parsed?.ok || !parsed.state) throw new Error(t("errUnreadable", lang));
+
+  // 取れた HTML がユーザーの見る画面と一致するとは限らない。同意画面や
+  // スクリプトで組み立てるページを「本文」として判定すると害になるので弾く。
+  if ((parsed.state.body_excerpt || "").length < SERP.fetchMinBodyChars) {
+    throw new Error(t("errFetchThin", lang));
+  }
+  return parsed.state;
+}
+
+async function fetchJudge(url, config) {
+  const lang = resolveLang(config);
+  if (!config.serp?.enabled || !config.serp?.fetch) throw new Error(t("errUnsupported", lang));
+  if (!/^https?:/.test(url || "")) throw new Error(t("errUnsupported", lang));
+
+  const fp = configFingerprint(config);
+  const key = cacheKey(url, fp, "fetch");
+  let hit = await readCache(key);
+  if (!hit) {
+    const state = await fetchState(url, lang);
+    const raw = await callJev(state, buildQuestions(config), lang);
+    hit = { url, answers: raw.answers, usage: raw.usage ?? null };
+    await writeCache(key, hit);
+  }
+  return toVerdict(hit, config, "fetch");
+}
+
 // --- content script の登録 ------------------------------------------------
 // 既定マニフェストには入れない。設定でオンにして許可を取ったときだけ登録する。
 const SERP_SCRIPT_ID = "serp-highlight";
@@ -301,6 +396,7 @@ chrome.permissions.onRemoved.addListener(syncSerpScript);
 
 // --- メッセージ -----------------------------------------------------------
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.target === "offscreen") return; // オフスクリーン文書宛。ここでは扱わない
   (async () => {
     try {
       if (msg.type === "classify") {
@@ -328,10 +424,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({
           ok: true,
           snippetMode: !!config.serp?.snippet,
+          fetchMode: !!config.serp?.fetch,
           maxPerPage: SERP.maxPerPage,
           batchSize: SERP.batchSize,
           snippetChars: SERP.snippetChars,
           debounceMs: SERP.debounceMs,
+          // content script に文言を持たせない
+          labels: {
+            check: t("serpCheck", resolveLang(config)),
+            checking: t("serpChecking", resolveLang(config)),
+            failed: t("serpCheckFailed", resolveLang(config)),
+          },
         });
       } else if (msg.type === "serpLookup") {
         const config = await loadConfig();
@@ -340,6 +443,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           verdicts: await serpLookup(msg.urls ?? [], config),
           snippetMode: !!config.serp?.snippet,
         });
+      } else if (msg.type === "serpFetch") {
+        const config = await loadConfig();
+        sendResponse({ ok: true, verdict: await fetchJudge(msg.url, config) });
       } else if (msg.type === "serpJudge") {
         const config = await loadConfig();
         sendResponse({ ok: true, ...(await serpJudge(msg.items ?? [], config)) });

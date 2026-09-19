@@ -1,3 +1,5 @@
+<img src="logo.png" alt="" width="88" align="right" />
+
 # Page Verdict — tell advertising from first-hand experience, with Jev
 
 A Manifest V3 Chrome extension that answers one question about the page you are on:
@@ -33,9 +35,8 @@ pointing at this path, and an unpacked extension whose folder is gone is disable
 3. Press **Load unpacked** (top left)
 4. Select the folder from step 1 — the one containing `manifest.json`
 
-A card titled "Page Verdict (Jev)" means it loaded. No icon files are shipped, so the toolbar shows
-the default puzzle-piece icon. To keep it visible, open the extensions (puzzle piece) menu and pin
-"Page Verdict (Jev)".
+A card titled "Page Verdict (Jev)" means it loaded. To keep it visible, open the extensions
+(puzzle piece) menu and pin "Page Verdict (Jev)".
 
 ### 3. Save an API key
 
@@ -155,10 +156,38 @@ Two levels, both in the settings page:
    Google is already showing you* to Jev, for up to 10 results per search. The linked pages are
    never fetched. Drawn with a dotted bar and an "estimated" tag, never stated as fact.
 
+3. **Check one result's page on click** — puts a small button on every result. Pressing it fetches
+   *that one page*, extracts the same signals a visit would, and judges the body. It is the verdict
+   the toolbar icon gives, without opening the tab. Nothing is fetched until you press.
+
 Turning it on asks for permission to run on `https://www.google.com/search*` and
 `https://www.google.co.jp/search*`. The content script is registered at that moment through
 `chrome.scripting.registerContentScripts`; it is not in the manifest, so the extension holds no
 standing access to those pages until you agree.
+
+### Why clicking, and not every result automatically
+
+Fetching all ten or a hundred result pages on every search is technically possible and was
+deliberately not built. Four reasons, in order of weight:
+
+- **It changes what leaves your machine.** Today only pages you open, and snippets Google already
+  put on your screen, are sent. Bulk fetching would send the full text of pages you never opened
+  and would never have clicked, on every search. That is the same position as a content script on
+  `<all_urls>`, which is what this extension exists to avoid.
+- **Prompt injection stops being theoretical.** Search results include pages an attacker placed
+  there. Auto-fetching their body into the state removes the one thing currently in the way: a
+  human deciding to open it.
+- **It looks like crawling.** Dozens of automated requests per search, from your IP, to sites you
+  never visited, logged on their side as visits that never happened.
+- **Fetched HTML is not what you would see.** No cookies, no scripts: consent walls, login walls
+  and empty SPA shells come back instead of the page. A body shorter than 400 characters is
+  rejected rather than judged, but this is a real accuracy ceiling.
+
+Cost is the least of it: ~$0.0126 per 100-result search against ~$0.0004 for snippets.
+
+Clicking keeps every one of these bounded. Fetches are made with `credentials: "omit"`, capped at
+800 KB and 10 seconds, parsed in an offscreen document (MV3 service workers have no `DOMParser`),
+and cached under their own key so a fetched verdict never masquerades as one from a real visit.
 
 Snippet estimates are deliberately weaker than page verdicts. A snippet is ~120 characters written
 to win the click, and none of the counted signals (affiliate links, prices, schema types) exist in
@@ -220,8 +249,10 @@ manifest.json    MV3 manifest
 extract.js       Pulls judgement material out of a page (injected function)
 questions.js     Questions, label catalogue, presets, thresholds, colours — tune here
 i18n.js          Interface strings (English / Japanese)
-background.js    API calls, cache, badge, search-result verdicts
+background.js    API calls, cache, badge, search-result verdicts, page fetching
+offscreen.js     Parses fetched HTML (service workers have no DOMParser)
 serp.js/.css     Colour-codes Google results (registered only when enabled)
+icons/           16/32/48/128 PNG, exported from logo.png
 popup.html/js    Shows the verdict
 options.html/js  API key, classes, language, display
 ```

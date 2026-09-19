@@ -1,12 +1,21 @@
 /**
  * ページから「判定に必要な事実」だけを抜き出す。
- * chrome.scripting.executeScript から関数として注入される想定。
+ *
+ * 2通りの呼ばれ方をする。
+ *  1. chrome.scripting.executeScript から引数なしで注入される（開いているタブ）
+ *  2. オフスクリーン文書から (doc, baseUrl) 付きで呼ばれる（fetch した HTML）
+ *
+ * executeScript は関数を文字列化して注入するため、この関数は外側のスコープを
+ * 一切参照していない必要がある。だから引数で受ける形にしてあり、helper を
+ * 外に出していない。実装を2つ持たないための制約。
  *
  * Jev の state はオブジェクト形式が推奨。各フィールドに説明的な名前を付けると
  * モデルが関係性を名前から読む。無関係な情報を入れるほど精度が落ちるので、
  * ここで削れるものは削っておく。
  */
-function extractPageSignals() {
+function extractPageSignals(doc, baseUrl) {
+  const d = doc || document;
+  const here = baseUrl || d.location?.href || location.href;
   const MAX_BODY_CHARS = 3500;
   const MAX_HEADINGS = 12;
   const MAX_LINK_SAMPLE = 400;
@@ -32,26 +41,30 @@ function extractPageSignals() {
   const AFFILIATE_QUERY_KEYS = ["tag", "affid", "af_id", "a8", "yclid_af", "ref_aff"];
 
   const text = (v) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
-  const metaOf = (sel) => text(document.querySelector(sel)?.getAttribute("content"));
+  const metaOf = (sel) => text(d.querySelector(sel)?.getAttribute("content"));
 
   // --- 本文 ---------------------------------------------------------------
-  const clone = document.body ? document.body.cloneNode(true) : null;
+  const clone = d.body ? d.body.cloneNode(true) : null;
   if (clone) {
     clone
       .querySelectorAll("script,style,noscript,template,nav,header,footer,aside,iframe,svg,form")
       .forEach((n) => n.remove());
   }
-  const bodyText = text(clone?.innerText || "").slice(0, MAX_BODY_CHARS);
+  // fetch した HTML はレンダリングされないので innerText が空になる。textContent に落とす。
+  const bodyText = text(clone?.innerText || clone?.textContent || "").slice(0, MAX_BODY_CHARS);
 
   // --- 見出し -------------------------------------------------------------
-  const headings = [...document.querySelectorAll("h1,h2,h3")]
-    .map((h) => text(h.innerText))
+  const headings = [...d.querySelectorAll("h1,h2,h3")]
+    .map((h) => text(h.innerText || h.textContent))
     .filter(Boolean)
     .slice(0, MAX_HEADINGS);
 
   // --- リンク統計 ---------------------------------------------------------
-  const here = location.hostname;
-  const anchors = [...document.querySelectorAll("a[href]")].slice(0, MAX_LINK_SAMPLE);
+  let siteHost = "";
+  try {
+    siteHost = new URL(here).hostname;
+  } catch {}
+  const anchors = [...d.querySelectorAll("a[href]")].slice(0, MAX_LINK_SAMPLE);
   let external = 0;
   let affiliate = 0;
   const affiliateHosts = new Set();
@@ -59,12 +72,12 @@ function extractPageSignals() {
   for (const a of anchors) {
     let u;
     try {
-      u = new URL(a.href, location.href);
+      u = new URL(a.getAttribute("href"), here);
     } catch {
       continue;
     }
     if (!/^https?:$/.test(u.protocol)) continue;
-    if (u.hostname === here) continue;
+    if (u.hostname === siteHost) continue;
     external += 1;
 
     const hostHit = AFFILIATE_PATTERNS.some((re) => re.test(u.hostname));
@@ -77,7 +90,7 @@ function extractPageSignals() {
 
   // --- 構造化データ -------------------------------------------------------
   const schemaTypes = new Set();
-  for (const node of document.querySelectorAll('script[type="application/ld+json"]')) {
+  for (const node of d.querySelectorAll('script[type="application/ld+json"]')) {
     try {
       const walk = (o) => {
         if (!o || typeof o !== "object") return;
@@ -99,15 +112,15 @@ function extractPageSignals() {
 
   return {
     page: {
-      url: location.href,
-      site_host: here,
-      title: text(document.title),
+      url: here,
+      site_host: siteHost,
+      title: text(d.title),
       meta_description: metaOf('meta[name="description"]') || null,
       og_type: metaOf('meta[property="og:type"]') || null,
       og_site_name: metaOf('meta[property="og:site_name"]') || null,
       published_time: metaOf('meta[property="article:published_time"]') || null,
       author: metaOf('meta[name="author"]') || null,
-      lang: document.documentElement.lang || null,
+      lang: d.documentElement?.lang || null,
     },
     headings,
     body_excerpt: bodyText,
@@ -124,6 +137,4 @@ function extractPageSignals() {
   };
 }
 
-// executeScript({ func }) は関数を文字列化して注入するため、
-// この関数は外側のスコープを一切参照していない必要がある。
 export { extractPageSignals };

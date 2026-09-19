@@ -46,3 +46,30 @@
     }
   }
 }
+
+/* 「本文で確かめる」ボタン。判定が無い結果に出る。 */
+.pv-chip.pv-ghost {
+  background: transparent;
+  color: inherit;
+  opacity: 0.55;
+  border: 1px solid currentColor;
+  padding: 0 6px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.pv-chip.pv-ghost:hover,
+.pv-chip.pv-ghost:focus-visible {
+  opacity: 1;
+}
+.pv-chip[data-pv-url] {
+  cursor: pointer;
+}
+.pv-chip.pv-failed {
+  background: transparent;
+  color: inherit;
+  opacity: 0.55;
+  border: 1px dashed currentColor;
+  padding: 0 6px;
+  font-weight: 400;
+  cursor: help;
+}

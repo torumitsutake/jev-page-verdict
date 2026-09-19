@@ -128,7 +128,7 @@ export const DEFAULT_CONFIG = {
   customGenres: [], // [{ key, name: { en, ja }, criteria }]
   axes: { stance: true, publisher: true, product: true },
   sections: { gauge: true, facts: true, probs: false, raw: false },
-  serp: { enabled: false, snippet: false },
+  serp: { enabled: false, snippet: false, fetch: false },
 };
 
 /** 旧形式 { key, ja, en } の独自ラベルを新形式に寄せる。en は criteria だった。 */
@@ -434,6 +434,12 @@ export const SERP = {
   concurrency: 4, // 同時リクエスト数
   snippetChars: 320, // スニペットの切り詰め
   debounceMs: 400, // DOM が落ち着くのを待つ時間
+
+  // クリックした1件だけ本文を取りに行くときの制限。
+  // 全件取得にしない理由は README と CLAUDE.md を参照。
+  fetchTimeoutMs: 10000,
+  fetchMaxBytes: 800000, // これ以上は切る。巨大ページでパーサを詰まらせない
+  fetchMinBodyChars: 400, // これ未満は同意画面か JS レンダリング。判定しない
 };
 
 /**
