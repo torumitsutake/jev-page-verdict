@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<style>
+  :root {
+    --paper: #f1f4f5; --ink: #161b20; --muted: #697480;
+    --rule: #d3dade; --verdict: #4a5a68;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper: #15191d; --ink: #e8edf0; --muted: #8b959e; --rule: #2b3238; }
+  }
+  * { box-sizing: border-box; }
+
+  body {
+    width: 352px; margin: 0; padding: 18px 18px 14px;
+    background: var(--paper); color: var(--ink);
+    font-family: "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",system-ui,sans-serif;
+    font-size: 13px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+  }
+
+  .host { color: var(--muted); font-size: 11px; letter-spacing: .02em;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* 判定 — 主役 */
+  .verdict { margin: 10px 0 2px; font-size: 27px; font-weight: 600;
+             letter-spacing: -.02em; line-height: 1.15; color: var(--verdict); }
+  .verdict.quiet { color: var(--muted); font-weight: 500; }
+  .subline { color: var(--muted); font-size: 12px; }
+
+  /* 折りたたみ */
+  details.sec { border-top: 1px solid var(--rule); }
+  details.sec:last-of-type { border-bottom: 1px solid var(--rule); }
+  details.sec > summary {
+    display: flex; align-items: center; gap: 6px;
+    padding: 9px 0; cursor: pointer; list-style: none;
+    color: var(--muted); font-size: 11.5px; user-select: none;
+  }
+  details.sec > summary::-webkit-details-marker { display: none; }
+  details.sec > summary::before {
+    content: ""; width: 0; height: 0; flex: none;
+    border-left: 4px solid currentColor;
+    border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent;
+    transition: transform .15s ease;
+  }
+  details.sec[open] > summary::before { transform: rotate(90deg) translateX(-1px); }
+  details.sec > summary:focus-visible { outline: 2px solid var(--verdict); outline-offset: 2px; }
+  .sec-peek { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .sec-body { padding: 2px 0 14px; }
+  @media (prefers-reduced-motion: reduce) { details.sec > summary::before { transition: none; } }
+
+  /* 独立性ゲージ */
+  .gauge-track { position: relative; height: 3px; background: var(--rule); margin-top: 8px; }
+  .gauge-tick { position: absolute; top: -3px; width: 1px; height: 9px; background: var(--rule); }
+  .gauge-mark { position: absolute; top: -6px; width: 3px; height: 15px;
+                background: var(--verdict); transform: translateX(-1px);
+                transition: left .35s cubic-bezier(.2,.7,.3,1); }
+  @media (prefers-reduced-motion: reduce) { .gauge-mark { transition: none; } }
+  .gauge-scale { display: flex; justify-content: space-between; margin-top: 9px;
+                 font-size: 10.5px; color: var(--muted); }
+  .gauge-scale span:nth-child(2) { transform: translateX(-4px); }
+
+  /* 根拠 */
+  .fact { display: flex; align-items: baseline; gap: 9px; padding: 5px 0; font-size: 12px; }
+  .dot { flex: none; width: 7px; height: 7px; border-radius: 50%;
+         border: 1.5px solid var(--muted); transform: translateY(-1px); }
+  .dot.on { background: var(--verdict); border-color: var(--verdict); }
+  .fact-val { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* 確率 */
+  .prob { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 11.5px; }
+  .prob-name { flex: none; width: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prob-bar { flex: 1; height: 5px; background: var(--rule); }
+  .prob-fill { height: 100%; background: var(--verdict); }
+  .prob-num { flex: none; width: 34px; text-align: right; color: var(--muted);
+              font-variant-numeric: tabular-nums; }
+  .prob-group { margin-bottom: 12px; }
+  .prob-group h4 { margin: 0 0 2px; font-size: 11px; font-weight: 500; color: var(--muted); }
+
+  pre.raw { margin: 0; font-size: 10.5px; line-height: 1.5; white-space: pre-wrap;
+            word-break: break-all; color: var(--muted); max-height: 190px; overflow: auto; }
+
+  footer { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  button { font: inherit; font-size: 12px; padding: 6px 13px; border: 0; cursor: pointer;
+           color: var(--paper); background: var(--ink); }
+  button.ghost { background: none; color: var(--muted); padding: 6px 2px; }
+  button:focus-visible { outline: 2px solid var(--verdict); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: default; }
+  .meta { margin-left: auto; color: var(--muted); font-size: 10.5px; }
+
+  .msg { color: var(--muted); padding: 14px 0; }
+  .msg.err { color: #b4341f; }
+  @media (prefers-color-scheme: dark) { .msg.err { color: #e9806c; } }
+</style>
+</head>
+<body>
+  <div class="host" id="host"></div>
+  <div id="view"><div class="msg" id="msg">読み込み中…</div></div>
+
+  <footer>
+    <button id="run">判定する</button>
+    <button class="ghost" id="options">設定</button>
+    <span class="meta" id="meta"></span>
+  </footer>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

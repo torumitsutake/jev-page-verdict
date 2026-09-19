@@ -1,0 +1,9 @@
+# 正解ラベル付き評価データのテンプレート。
+# genre     : commerce | experience | news | explainer | discussion | other
+# stance    : seller | incentivized | user | observer | unclear
+# publisher : official_site | media | individual | aggregator | platform
+# note      : 境界ケースの理由をメモしておくと閾値を決めるときに効く
+url,genre,stance,publisher,note
+https://example.com/review-with-affiliate,commerce,incentivized,individual,感想の形をしたアフィリエイト記事
+https://example.com/personal-blog-post,experience,user,individual,
+https://example.com/vendor-tech-blog,explainer,seller,official_site,オウンドメディアの技術解説。explainer と commerce の境界
