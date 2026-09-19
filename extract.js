@@ -38,7 +38,10 @@ function extractPageSignals(doc, baseUrl) {
     /(^|\.)tradedoubler\.com$/i,
     /(^|\.)felmat\.net$/i,
   ];
-  const AFFILIATE_QUERY_KEYS = ["tag", "affid", "af_id", "a8", "yclid_af", "ref_aff"];
+  const AFFILIATE_QUERY_KEYS = ["affid", "af_id", "a8", "yclid_af", "ref_aff"];
+  // tag= は Amazon のアソシエイトIDだが、他所ではタグ別アーカイブの意味で使われる。
+  // ホストを見ないと「?tag=旅行」のリンクまでアフィリエイトとして数えてしまう。
+  const AMAZON_HOST = /(^|\.)amazon\.[a-z.]+$|(^|\.)amzn\.(to|asia)$/i;
 
   const text = (v) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
   const metaOf = (sel) => text(d.querySelector(sel)?.getAttribute("content"));
@@ -50,7 +53,8 @@ function extractPageSignals(doc, baseUrl) {
       .querySelectorAll("script,style,noscript,template,nav,header,footer,aside,iframe,svg,form")
       .forEach((n) => n.remove());
   }
-  // fetch した HTML はレンダリングされないので innerText が空になる。textContent に落とす。
+  // clone は detached なので、どちらの経路でも innerText は textContent と同じ扱いになる
+  // （= 非表示要素の文字も入る）。それでも両経路で同じ結果になることを優先している。
   const bodyText = text(clone?.innerText || clone?.textContent || "").slice(0, MAX_BODY_CHARS);
 
   // --- 見出し -------------------------------------------------------------
@@ -81,7 +85,9 @@ function extractPageSignals(doc, baseUrl) {
     external += 1;
 
     const hostHit = AFFILIATE_PATTERNS.some((re) => re.test(u.hostname));
-    const queryHit = AFFILIATE_QUERY_KEYS.some((k) => u.searchParams.has(k));
+    const queryHit =
+      AFFILIATE_QUERY_KEYS.some((k) => u.searchParams.has(k)) ||
+      (AMAZON_HOST.test(u.hostname) && u.searchParams.has("tag"));
     if (hostHit || queryHit) {
       affiliate += 1;
       affiliateHosts.add(u.hostname);

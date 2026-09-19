@@ -208,6 +208,7 @@ function toVerdict(result, config, src) {
 /** キャッシュだけを見る。API は呼ばない。本文判定を優先する。 */
 async function serpLookup(urls, config) {
   const fp = configFingerprint(config);
+  const sfp = configFingerprint(config, "snippet");
   const out = {};
   for (const url of urls.slice(0, SERP.batchSize)) {
     // 強い順に見る。本文 > 取得した本文 > スニペット推定。
@@ -218,7 +219,7 @@ async function serpLookup(urls, config) {
       src = "fetch";
     }
     if (!hit && config.serp?.snippet) {
-      hit = await readCache(cacheKey(url, fp, "snippet"));
+      hit = await readCache(cacheKey(url, sfp, "snippet"));
       src = "snippet";
     }
     out[url] = hit ? toVerdict(hit, config, src) : null;
@@ -248,7 +249,7 @@ async function judgeSnippet(item, config, lang) {
 async function serpJudge(items, config) {
   if (!config.serp?.enabled || !config.serp?.snippet) return { verdicts: {}, halted: null };
   const lang = resolveLang(config);
-  const fp = configFingerprint(config);
+  const fp = configFingerprint(config, "snippet");
 
   const todo = items.filter((it) => /^https?:/.test(it.url || "")).slice(0, SERP.batchSize);
 
@@ -311,24 +312,69 @@ async function ensureOffscreen() {
   await offscreenPending;
 }
 
+/**
+ * 上限に達したら読むのをやめる。res.text() だと全部メモリに載せてから切ることになり、
+ * 巨大なページや本文を垂れ流すサーバで詰まる。
+ *
+ * 文字コードはヘッダから取る。res.text() は常に UTF-8 で読むので、
+ * Shift_JIS を宣言している日本語サイトが文字化けする。
+ */
+async function readCapped(res) {
+  const charset = (res.headers.get("content-type") || "").match(/charset=([\w-]+)/i)?.[1];
+  const decode = (bytes) => {
+    try {
+      return new TextDecoder(charset || "utf-8").decode(bytes);
+    } catch {
+      return new TextDecoder("utf-8").decode(bytes);
+    }
+  };
+  if (!res.body) return decode(new Uint8Array(await res.arrayBuffer()).subarray(0, SERP.fetchMaxBytes));
+
+  const reader = res.body.getReader();
+  const chunks = [];
+  let size = 0;
+  while (size < SERP.fetchMaxBytes) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    size += value.byteLength;
+  }
+  await reader.cancel().catch(() => {});
+
+  const buf = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    buf.set(c, at);
+    at += c.byteLength;
+  }
+  return decode(buf.subarray(0, SERP.fetchMaxBytes));
+}
+
 async function fetchState(url, lang) {
   const controller = new AbortController();
+  // 本文を読み終えるまで止めない。ヘッダだけ即返して本文を垂れ流すサーバがあるため、
+  // ここで clearTimeout すると永久に応答が返らず、チップが「取得中…」のまま固まる。
   const timer = setTimeout(() => controller.abort(), SERP.fetchTimeoutMs);
-  let res;
+  let html;
   try {
     // Cookie は送らない。ログイン済みの中身を外に出さないため。
-    res = await fetch(url, { credentials: "omit", redirect: "follow", signal: controller.signal });
-  } catch {
-    throw new Error(t("errFetch", lang));
+    const res = await fetch(url, {
+      credentials: "omit",
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    if (!res.ok) throw tagged(new Error(t("errFetchStatus", lang, { status: res.status })), "http");
+    if (!/text\/html|application\/xhtml/i.test(res.headers.get("content-type") || "")) {
+      throw tagged(new Error(t("errNotHtml", lang)), "not_html");
+    }
+    html = await readCapped(res);
+  } catch (err) {
+    if (err?.code) throw err; // こちらで組み立てたエラーはそのまま出す
+    throw new Error(t("errFetch", lang)); // 通信失敗・中断
   } finally {
     clearTimeout(timer);
   }
-  if (!res.ok) throw new Error(t("errFetchStatus", lang, { status: res.status }));
-  if (!/text\/html|application\/xhtml/i.test(res.headers.get("content-type") || "")) {
-    throw new Error(t("errNotHtml", lang));
-  }
 
-  const html = (await res.text()).slice(0, SERP.fetchMaxBytes);
   await ensureOffscreen();
   const parsed = await chrome.runtime.sendMessage({
     target: "offscreen",
@@ -468,6 +514,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       } else if (msg.type === "serpJudge") {
         const config = await loadConfig();
         sendResponse({ ok: true, ...(await serpJudge(msg.items ?? [], config)) });
+      } else {
+        // 応答しないと送信側が永久に待つ。将来 type を足したときの保険。
+        sendResponse({ ok: false, error: `unknown message type: ${msg?.type}` });
       }
     } catch (err) {
       sendResponse({ ok: false, error: String(err?.message || err) });

@@ -28,7 +28,8 @@ export function resolveLang(config) {
 /** { en, ja } から現在の言語を取り出す。ja が無ければ en に落とす。 */
 export function pick(obj, lang) {
   if (!obj) return "";
-  return obj[lang] ?? obj.en ?? "";
+  // 空文字も未設定として扱う。?? だと "" がそのまま返り、表示名が消える。
+  return obj[lang] || obj.en || "";
 }
 
 const S = {
@@ -257,7 +258,8 @@ const S = {
 export function t(key, lang, vars) {
   let s = pick(S[key], lang) || key;
   if (vars) {
-    for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
+    // 置換文字列をそのまま渡すと $& や $$ が展開される。関数で渡して素通しにする。
+    for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, () => String(v));
   }
   return s;
 }

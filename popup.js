@@ -155,8 +155,12 @@ function render(data) {
   // 開閉を覚える
   view.querySelectorAll("details.sec").forEach((el) => {
     el.addEventListener("toggle", async () => {
-      const id = el.dataset.sec;
-      config = await saveConfig({ sections: { ...config.sections, [id]: el.open } });
+      // 1つずつ差分を当てると、続けて開閉したとき後の書き込みが前を巻き戻す
+      // （どちらも更新前の config.sections を土台にするため）。画面の今の状態を
+      // まるごと書けば、順番に関係なく正しい値に落ち着く。
+      const sections = { ...config.sections };
+      for (const sec of view.querySelectorAll("details.sec")) sections[sec.dataset.sec] = sec.open;
+      config = await saveConfig({ sections });
     });
   });
 }

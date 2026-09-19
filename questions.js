@@ -182,16 +182,31 @@ export function findOverlaps(config) {
   return hits;
 }
 
-/** ラベル構成が変わったらキャッシュは無効。構成のハッシュをキーに混ぜる。 */
-export function configFingerprint(config) {
-  const src = JSON.stringify([
-    Object.keys(resolveGenres(config)).sort(),
-    (config.customGenres ?? []).map((g) => g.key + ":" + g.criteria).sort(),
-    config.axes,
-  ]);
+function hash(src) {
   let h = 0;
   for (let i = 0; i < src.length; i++) h = (Math.imul(31, h) + src.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36);
+}
+
+/**
+ * ラベル構成が変わったらキャッシュは無効。構成のハッシュをキーに混ぜる。
+ *
+ * kind="snippet" のときは、スニペット用の質問が実際に使うもの（ジャンルと stance）
+ * だけを見る。publisher や product を切り替えただけで検索結果の推定を投げ直すのは、
+ * 同じ質問に同じ金を2回払うことになる。
+ */
+export function configFingerprint(config, kind = "page") {
+  const genres = Object.keys(resolveGenres(config)).sort();
+  const custom = (config.customGenres ?? []).map((g) => g.key + ":" + g.criteria).sort();
+  // オブジェクトをそのまま JSON にするとキーの挿入順でハッシュが変わり、
+  // 同じ設定なのにキャッシュが外れる。並べ替えて真偽に正規化しておく。
+  const axes = Object.entries(config.axes ?? {})
+    .map(([k, v]) => `${k}:${v ? 1 : 0}`)
+    .sort();
+  if (kind === "snippet") {
+    return "s" + hash(JSON.stringify([genres, custom, !!config.axes?.stance]));
+  }
+  return hash(JSON.stringify([genres, custom, axes]));
 }
 
 /* ------------------------------------------------------------------ *

@@ -10,8 +10,10 @@
  */
 (() => {
   const done = new Set(); // 処理済みの URL
+  const verdicts = new Map(); // url -> 描いた判定。同じ URL が複数箇所に出るとき使う
   let limits = null; // background から受け取る上限と文言
   let budget = 0; // このページで残り何件見るか
+  let snippetHalted = false; // レート制限に当たったらスニペット推定だけ止める
   let running = false;
   let timer = null;
 
@@ -31,9 +33,11 @@
   }
 
   // 広告は Google 自身が「スポンサー」と書いている。判定するまでもない。
+  // 「Ad」単体は拾わない。"Ad Age" のようなサイト名を広告と誤認するため。
+  const AD_PREFIX = /^(スポンサー|広告|Sponsored)(\s|:|$)/;
   function isAd(block) {
     if (block.closest("[data-text-ad], #tads, #bottomads")) return true;
-    return /^(スポンサー|Sponsored|広告|Ad)\b/.test((block.innerText || "").trim());
+    return AD_PREFIX.test((block.innerText || "").trim());
   }
 
   // /url?q=... 経由のリンクから実体の URL を取り出す。
@@ -58,20 +62,38 @@
     return cut.trim().slice(0, limits.snippetChars);
   }
 
-  /** 未処理の結果を最大 n 件まで取る。 */
+  /** 未処理の結果を最大 n 件まで取る。判定済みの URL の再掲はその場で描く。 */
   function collect(n) {
     const items = [];
     for (const { block, a, h3 } of resultBlocks()) {
       if (items.length >= n) break;
       block.dataset.pvSeen = "1";
-      if (isAd(block)) continue;
+
       const url = realUrl(a.href);
-      if (!url || done.has(url)) continue;
+      if (!url || isAd(block)) continue;
+
+      // 同じ URL がカルーセルと通常枠の両方に出ることがある。
+      // 2つ目以降は判定し直さず、出ている判定をそのまま描く。
+      if (done.has(url)) {
+        const known = verdicts.get(url);
+        if (known) paint(block, known, url);
+        else paintGhost(block, url);
+        continue;
+      }
+
       done.add(url);
       const title = (h3.innerText || "").trim();
       items.push({ url, title, snippet: snippetOf(block, title), block });
     }
     return items;
+  }
+
+  /** 失敗した分は次の描画でやり直せるように戻す。 */
+  function rollback(items) {
+    for (const it of items) {
+      done.delete(it.url);
+      delete it.block.dataset.pvSeen;
+    }
   }
 
   /* --- 描画 ------------------------------------------------------------ */
@@ -92,6 +114,7 @@
 
   function paint(block, verdict, url) {
     if (!block || !verdict) return;
+    verdicts.set(url, verdict);
     block.classList.add("pv-block");
     block.classList.toggle("pv-estimated", !!verdict.estimated);
     block.style.setProperty("--pv-color", verdict.color);
@@ -138,16 +161,17 @@
 
     // 2. 残りをスニペットから推定する（設定でオンのときだけ）。
     const rest = payload.filter((it) => !cached.verdicts?.[it.url]);
-    if (cached.snippetMode && rest.length) {
+    if (cached.snippetMode && !snippetHalted && rest.length) {
       const judged = await ask({ type: "serpJudge", items: rest });
       if (!judged?.ok) return false;
       for (const [url, verdict] of Object.entries(judged.verdicts ?? {})) {
         if (verdict) paint(byUrl.get(url), verdict, url);
       }
-      // レート制限やキー拒否が出たら、このページではもう投げない。
+      // レート制限やキー拒否が出たら、このページではもう推定を投げない。
+      // キャッシュを見るだけの 1. と、押して取りに行く操作は続けられる。
       if (judged.halted) {
         console.warn("[Page Verdict]", judged.halted);
-        budget = 0;
+        snippetHalted = true;
       }
     }
 
@@ -171,7 +195,11 @@
         const items = collect(Math.min(limits.batchSize, budget));
         if (!items.length) break;
         budget -= items.length;
-        if (!(await processBatch(items))) break;
+        if (!(await processBatch(items))) {
+          rollback(items);
+          budget += items.length;
+          break;
+        }
       }
     } finally {
       running = false;
@@ -199,7 +227,9 @@
       delete chip.dataset.pvBusy;
 
       if (res?.ok && res.verdict) {
-        paint(chip.closest(".pv-block") || chip.parentElement, res.verdict, url);
+        // chip は必ず対象ブロックの直下にある。closest(".pv-block") だと
+        // 入れ子になった親の結果を塗ってしまう（Google は結果を入れ子にする）。
+        paint(chip.parentElement, res.verdict, url);
       } else if (res?.ok) {
         // 取れたが confidence が足りない。断定しないので何も言わない。
         chip.textContent = before;

@@ -170,7 +170,10 @@ function renderAll() {
 
 /* --- 操作 ------------------------------------------------------------ */
 $("lang").addEventListener("change", async () => {
-  config = await saveConfig({ lang: $("lang").value });
+  // saveConfig の戻りで config を置き換えないこと。保存前の編集（ラベルの
+  // チェックなど）が保存済みの値で上書きされ、画面と保存内容がずれる。
+  config.lang = $("lang").value;
+  await saveConfig({ lang: config.lang });
   renderAll();
 });
 
@@ -230,7 +233,12 @@ $("serp").addEventListener("change", async (e) => {
     next.snippet = false;
     next.fetch = false;
   }
-  config = await saveConfig({ serp: next });
+  // 本文取得を切ったら全サイトの許可も返す。使わない権限を残さない。
+  if (!next.fetch && config.serp.fetch) {
+    await chrome.permissions.remove({ origins: ALL_SITES }).catch(() => {});
+  }
+  config.serp = next; // ここも config 全体を差し替えない（未保存の編集を残す）
+  await saveConfig({ serp: next });
   await chrome.runtime.sendMessage({ type: "syncSerp" });
   renderSerp();
 });
@@ -267,10 +275,20 @@ $("customList").addEventListener("input", (e) => {
 });
 
 $("save").addEventListener("click", async () => {
-  if (!config.genres.length && !config.customGenres.length) {
+  // 該当なしは常に足されるので、有効なラベルが1つでもあれば2以上になる。
+  // 数だけ見ると criteria が空のラベルが素通りし、全ページが「判定できず」になる。
+  if (Object.keys(resolveGenres(config)).length < 2) {
     return flash($("status"), t("optNoLabels", lang));
   }
-  config = await saveConfig(config);
+  // 分類まわりだけ保存する。この画面が開いている間にポップアップ側で変わった
+  // 開閉状態や、別に保存済みの serp / lang を古い値で上書きしないため。
+  config = await saveConfig({
+    preset: config.preset,
+    genres: config.genres,
+    customGenres: config.customGenres,
+    axes: config.axes,
+    sections: config.sections,
+  });
   flash($("status"), t("optSavedApplies", lang));
 });
 
@@ -291,7 +309,23 @@ $("clear").addEventListener("click", async () => {
 });
 
 /* --- 起動 ------------------------------------------------------------ */
-loadConfig().then((c) => {
-  config = c;
+(async () => {
+  config = await loadConfig();
+  // chrome://extensions 側で許可を外されることがある。その場合 background は
+  // content script を解除するが、設定は有効のまま残るので画面と実態がずれる。
+  if (config.serp.enabled) {
+    const granted = await chrome.permissions.contains({ origins: SERP.origins }).catch(() => true);
+    if (!granted) {
+      config.serp = { ...config.serp, enabled: false, snippet: false, fetch: false };
+      await saveConfig({ serp: config.serp });
+    }
+  }
+  if (config.serp.fetch) {
+    const granted = await chrome.permissions.contains({ origins: ALL_SITES }).catch(() => true);
+    if (!granted) {
+      config.serp = { ...config.serp, fetch: false };
+      await saveConfig({ serp: config.serp });
+    }
+  }
   renderAll();
-});
+})();
