@@ -2,14 +2,17 @@ import {
   GENRE_CATALOG,
   PRESETS,
   DEFAULT_CONFIG,
+  SERP,
   loadConfig,
   saveConfig,
   resolveGenres,
   findOverlaps,
 } from "./questions.js";
+import { LANG_CHOICES, resolveLang, applyI18n, pick, t } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
 let config;
+let lang = "en";
 
 const esc = (s) =>
   String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -26,59 +29,70 @@ chrome.storage.local.get("apiKey").then(({ apiKey }) => {
 
 $("saveKey").addEventListener("click", async () => {
   const apiKey = $("key").value.trim();
-  if (!apiKey) return flash($("keyStatus"), "キーが空です。");
+  if (!apiKey) return flash($("keyStatus"), t("optKeyEmpty", lang));
   await chrome.storage.local.set({ apiKey });
-  flash($("keyStatus"), "保存しました。");
+  flash($("keyStatus"), t("optSaved", lang));
 });
 
 /* --- 描画 ------------------------------------------------------------ */
+function renderLang() {
+  $("lang").innerHTML = Object.entries(LANG_CHOICES)
+    .map(([k, v]) => `<option value="${k}">${esc(pick(v, lang))}</option>`)
+    .join("");
+  $("lang").value = config.lang ?? "auto";
+}
+
 function renderPreset() {
   $("preset").innerHTML =
     Object.entries(PRESETS)
-      .map(([k, p]) => `<option value="${k}">${esc(p.ja)}</option>`)
-      .join("") + `<option value="custom">自分で選ぶ</option>`;
+      .map(([k, p]) => `<option value="${k}">${esc(pick(p.name, lang))}</option>`)
+      .join("") + `<option value="custom">${esc(t("optCustomPreset", lang))}</option>`;
   $("preset").value = config.preset;
   $("presetNote").textContent =
-    config.preset === "custom" ? "チェックした組み合わせを使います。" : PRESETS[config.preset]?.note ?? "";
+    config.preset === "custom"
+      ? t("optCustomPresetNote", lang)
+      : pick(PRESETS[config.preset]?.note, lang) ?? "";
 }
 
 function renderLabels() {
   const on = new Set(config.genres);
   $("labels").innerHTML = Object.entries(GENRE_CATALOG)
     .map(([key, v]) => {
-      const parent = v.splits ? GENRE_CATALOG[v.splits].ja : null;
+      const parent = v.splits ? pick(GENRE_CATALOG[v.splits].name, lang) : null;
       return `<label class="label-row">
         <input type="checkbox" data-genre="${key}"${on.has(key) ? " checked" : ""} />
         <span class="label-main">
-          <span class="label-ja">${esc(v.ja)}</span>
-          ${parent ? `<span class="label-tag">（${esc(parent)}を分割）</span>` : ""}
-          <br /><span class="label-en">${esc(v.en)}</span>
+          <span class="label-ja">${esc(pick(v.name, lang))}</span>
+          ${parent ? `<span class="label-tag">${esc(t("optSplitTag", lang, { parent }))}</span>` : ""}
+          <br /><span class="label-en">${esc(v.criteria)}</span>
         </span>
       </label>`;
     })
     .join("");
 
   const total = Object.keys(resolveGenres(config)).length;
-  $("count").innerHTML = `いま <strong>${total}分類</strong>（該当なしを含む）。目安は6、多くても9まで。`;
+  $("count").innerHTML = t("optCount", lang, { n: total });
 
   const hits = findOverlaps(config);
   const pairs = hits
-    .map(([c, p]) => `<b>${esc(GENRE_CATALOG[c].ja)}</b> と <b>${esc(GENRE_CATALOG[p].ja)}</b>`)
-    .join("、");
+    .map(
+      ([c, p]) =>
+        `<b>${esc(pick(GENRE_CATALOG[c].name, lang))}</b> / <b>${esc(pick(GENRE_CATALOG[p].name, lang))}</b>`
+    )
+    .join(", ");
   $("overlap").innerHTML = !hits.length
     ? ""
-    : config.preset === "detailed"
-    ? `${pairs} は意味が重なります。詳細プリセットでは想定内ですが、この2つで確率が割れるぶん確信度は下がります。「判定できず」が多いと感じたら <code>questions.js</code> の <code>CONFIDENCE.hint</code> を 0.4 前後まで下げてください。`
-    : `意味が重なるラベルが同時に有効です：${pairs}。このままだと両者で確率が割れて「判定できず」が増えます。片方を外すか、<code>CONFIDENCE.hint</code> を下げてください。`;
+    : t(config.preset === "detailed" ? "optOverlapDetailed" : "optOverlapWarn", lang, { pairs });
 }
 
 function renderCustom() {
   $("customList").innerHTML = (config.customGenres ?? [])
     .map(
       (g, i) => `<div class="custom-row">
-        <input type="text" value="${esc(g.ja)}" data-cja="${i}" />
-        <input type="text" value="${esc(g.en)}" data-cen="${i}" />
-        <button class="del" data-del="${i}">削除</button>
+        <input type="text" value="${esc(g.name?.en ?? "")}" data-cen-name="${i}" />
+        <input type="text" value="${esc(g.name?.ja ?? "")}" data-cja-name="${i}" />
+        <input type="text" value="${esc(g.criteria ?? "")}" data-ccrit="${i}" />
+        <button class="del" data-del="${i}">${esc(t("optDelete", lang))}</button>
       </div>`
     )
     .join("");
@@ -86,48 +100,82 @@ function renderCustom() {
 
 function renderToggles() {
   const axes = [
-    ["stance", "書き手の立場", "売り手 / 報酬あり / 利用者 / 第三者。宣伝とアフィリエイトを分けるのはこの軸。"],
-    ["publisher", "発信主体", "公式 / メディア / 個人 / まとめ / プラットフォーム。"],
+    ["stance", t("axisStance", lang), t("axisStanceNote", lang)],
+    ["publisher", t("axisPublisher", lang), t("axisPublisherNote", lang)],
   ];
   $("axes").innerHTML = axes
     .map(
-      ([k, ja, en]) => `<label class="label-row">
+      ([k, name, note]) => `<label class="label-row">
         <input type="checkbox" data-axis="${k}"${config.axes[k] ? " checked" : ""} />
-        <span class="label-main"><span class="label-ja">${esc(ja)}</span>
-        <br /><span class="label-en">${esc(en)}</span></span>
+        <span class="label-main"><span class="label-ja">${esc(name)}</span>
+        <br /><span class="label-en">${esc(note)}</span></span>
       </label>`
     )
     .join("");
 
   const secs = [
-    ["gauge", "独立性ゲージ"],
-    ["facts", "根拠"],
-    ["probs", "分類の内訳"],
-    ["raw", "生の応答"],
+    ["gauge", t("secIndependence", lang)],
+    ["facts", t("secEvidence", lang)],
+    ["probs", t("secBreakdown", lang)],
+    ["raw", t("secRaw", lang)],
   ];
   $("sections").innerHTML = secs
     .map(
-      ([k, ja]) => `<label class="label-row">
+      ([k, name]) => `<label class="label-row">
         <input type="checkbox" data-section="${k}"${config.sections[k] ? " checked" : ""} />
-        <span class="label-main"><span class="label-ja">${esc(ja)}</span></span>
+        <span class="label-main"><span class="label-ja">${esc(name)}</span></span>
+      </label>`
+    )
+    .join("");
+}
+
+function renderSerp() {
+  const rows = [
+    ["enabled", t("serpEnable", lang), t("serpEnableNote", lang), false],
+    [
+      "snippet",
+      t("serpSnippet", lang),
+      t("serpSnippetNote", lang, { n: SERP.maxResults }),
+      !config.serp.enabled,
+    ],
+  ];
+  $("serp").innerHTML = rows
+    .map(
+      ([k, name, note, disabled]) => `<label class="label-row">
+        <input type="checkbox" data-serp="${k}"${config.serp[k] ? " checked" : ""}${
+        disabled ? " disabled" : ""
+      } />
+        <span class="label-main"><span class="label-ja">${esc(name)}</span>
+        <br /><span class="label-en">${esc(note)}</span></span>
       </label>`
     )
     .join("");
 }
 
 function renderAll() {
+  lang = resolveLang(config);
+  document.documentElement.lang = lang;
+  applyI18n(document, lang);
+  renderLang();
   renderPreset();
   renderLabels();
   renderCustom();
   renderToggles();
+  renderSerp();
 }
 
 /* --- 操作 ------------------------------------------------------------ */
+$("lang").addEventListener("change", async () => {
+  config = await saveConfig({ lang: $("lang").value });
+  renderAll();
+});
+
 $("preset").addEventListener("change", () => {
   const v = $("preset").value;
   config.preset = v;
   if (v !== "custom") config.genres = [...PRESETS[v].genres];
-  renderAll();
+  renderPreset();
+  renderLabels();
 });
 
 $("labels").addEventListener("change", (e) => {
@@ -151,14 +199,41 @@ $("sections").addEventListener("change", (e) => {
   if (key) config.sections[key] = e.target.checked;
 });
 
+/**
+ * 検索結果の色分けだけは「保存」を待たずに反映する。
+ * 権限の要求はユーザー操作の直後でないと Chrome に拒否されるため。
+ */
+$("serp").addEventListener("change", async (e) => {
+  const key = e.target.dataset?.serp;
+  if (!key) return;
+  $("serpWarn").textContent = "";
+
+  if (key === "enabled" && e.target.checked) {
+    const granted = await chrome.permissions.request({ origins: SERP.origins }).catch(() => false);
+    if (!granted) {
+      e.target.checked = false;
+      $("serpWarn").textContent = t("serpPermDenied", lang);
+      return;
+    }
+  }
+
+  const next = { ...config.serp, [key]: e.target.checked };
+  if (!next.enabled) next.snippet = false; // 親を切ったら子も切る
+  config = await saveConfig({ serp: next });
+  await chrome.runtime.sendMessage({ type: "syncSerp" });
+  renderSerp();
+});
+
 $("addCustom").addEventListener("click", () => {
-  const ja = $("newJa").value.trim();
-  const en = $("newEn").value.trim();
-  if (!ja || !en) return flash($("status"), "表示名と英語の説明の両方が要ります。");
+  const en = $("newEnName").value.trim();
+  const ja = $("newJaName").value.trim();
+  const criteria = $("newCriteria").value.trim();
+  if (!en || !criteria) return flash($("status"), t("optNeedBoth", lang));
   const key = `custom_${Date.now().toString(36)}`;
-  config.customGenres = [...(config.customGenres ?? []), { key, ja, en }];
-  $("newJa").value = "";
-  $("newEn").value = "";
+  config.customGenres = [...(config.customGenres ?? []), { key, name: { en, ja: ja || en }, criteria }];
+  $("newEnName").value = "";
+  $("newJaName").value = "";
+  $("newCriteria").value = "";
   renderCustom();
   renderLabels();
 });
@@ -172,28 +247,36 @@ $("customList").addEventListener("click", (e) => {
 });
 
 $("customList").addEventListener("input", (e) => {
-  const { cja, cen } = e.target.dataset;
-  if (cja !== undefined) config.customGenres[Number(cja)].ja = e.target.value;
-  if (cen !== undefined) config.customGenres[Number(cen)].en = e.target.value;
+  const d = e.target.dataset;
+  const g = config.customGenres[Number(d.cenName ?? d.cjaName ?? d.ccrit)];
+  if (!g) return;
+  if (d.cenName !== undefined) g.name.en = e.target.value;
+  if (d.cjaName !== undefined) g.name.ja = e.target.value;
+  if (d.ccrit !== undefined) g.criteria = e.target.value;
 });
 
 $("save").addEventListener("click", async () => {
   if (!config.genres.length && !config.customGenres.length) {
-    return flash($("status"), "ラベルが1つもありません。");
+    return flash($("status"), t("optNoLabels", lang));
   }
   config = await saveConfig(config);
-  flash($("status"), "保存しました。次の判定から反映されます。");
+  flash($("status"), t("optSavedApplies", lang));
 });
 
 $("reset").addEventListener("click", async () => {
-  config = await saveConfig({ ...DEFAULT_CONFIG, genres: [...PRESETS.standard.genres] });
+  config = await saveConfig({
+    ...DEFAULT_CONFIG,
+    lang: config.lang,
+    genres: [...PRESETS.standard.genres],
+    serp: config.serp, // 権限が絡むので分類のリセットでは触らない
+  });
   renderAll();
-  flash($("status"), "標準に戻しました。");
+  flash($("status"), t("optResetDone", lang));
 });
 
 $("clear").addEventListener("click", async () => {
   const res = await chrome.runtime.sendMessage({ type: "clearCache" });
-  flash($("status"), `保存していた判定を ${res?.removed ?? 0} 件消しました。`);
+  flash($("status"), t("optCleared", lang, { n: res?.removed ?? 0 }));
 });
 
 /* --- 起動 ------------------------------------------------------------ */

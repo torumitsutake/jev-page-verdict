@@ -1,0 +1,48 @@
+/*
+ * 検索結果に足す装飾。Google 側のレイアウトを動かさないことを優先する。
+ * 帯は border-left + 負の margin で、本文の位置は元のまま。
+ */
+
+.pv-block {
+  border-left: 3px solid var(--pv-color, #697480);
+  padding-left: 10px;
+  margin-left: -13px;
+}
+
+/* スニペットだけからの推定は断定ではない。実線と見分けがつくようにする。 */
+.pv-block.pv-estimated {
+  border-left-style: dotted;
+}
+
+.pv-chip {
+  display: inline-block;
+  margin: 0 0 4px;
+  padding: 1px 7px;
+  border-radius: 2px;
+  background: var(--pv-color, #697480);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.6;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  cursor: help;
+}
+
+.pv-block.pv-estimated .pv-chip {
+  background: transparent;
+  color: var(--pv-color, #697480);
+  border: 1px dotted var(--pv-color, #697480);
+  padding: 0 6px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pv-chip {
+    animation: pv-fade 0.18s ease-out;
+  }
+  @keyframes pv-fade {
+    from {
+      opacity: 0;
+    }
+  }
+}

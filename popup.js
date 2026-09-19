@@ -1,30 +1,19 @@
 import {
   labelOf,
   resolveGenres,
-  STANCE_LABELS,
-  PUBLISHER_LABELS,
+  verdictColor,
   CONFIDENCE,
   loadConfig,
   saveConfig,
 } from "./questions.js";
+import { resolveLang, applyI18n, t } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const view = $("view");
 const send = (msg) => chrome.runtime.sendMessage(msg);
 
 let config = null;
-
-const SELLING = new Set(["commerce", "affiliate", "ecommerce", "recruiting"]);
-const FIRSTHAND = new Set(["experience", "discussion", "creative", "opinion"]);
-
-function verdictColor(key, known) {
-  if (!known) return "#697480";
-  if (SELLING.has(key)) return "#b4341f";
-  if (FIRSTHAND.has(key)) return "#2f7a4e";
-  if (key === "lowquality") return "#8a6d1f";
-  if (key === "other") return "#697480";
-  return "#33566e";
-}
+let lang = "en";
 
 const esc = (s) =>
   String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -67,18 +56,23 @@ function render(data) {
   const sure = conf >= CONFIDENCE.assert;
   const hinted = conf >= CONFIDENCE.hint;
 
-  const label = hinted ? labelOf("genre", genre.choice, config) : "判定できず";
+  const name = hinted ? labelOf("genre", genre.choice, config) : "";
+  const headline = !hinted ? t("undecided", lang) : sure ? name : t("likely", lang, { label: name });
   document.documentElement.style.setProperty("--verdict", verdictColor(genre?.choice, hinted));
 
   // 2行目は stance と publisher を合成する。
   const parts = [];
   if (a.publisher && a.publisher.confidence >= CONFIDENCE.hint) {
-    parts.push(PUBLISHER_LABELS[a.publisher.choice]?.ja ?? a.publisher.choice);
+    parts.push(labelOf("publisher", a.publisher.choice, config));
   }
   if (a.stance && a.stance.confidence >= CONFIDENCE.hint) {
-    parts.push(STANCE_LABELS[a.stance.choice]?.ja ?? a.stance.choice);
+    parts.push(labelOf("stance", a.stance.choice, config));
   }
-  const subline = (parts.length ? parts.join("・") : "書き手は特定できず") + `・確信度 ${pct(conf)}`;
+  const join = t("subJoin", lang);
+  const subline =
+    (parts.length ? parts.join(join) : t("authorUnknown", lang)) +
+    join +
+    t("confidence", lang, { pct: pct(conf) });
 
   // --- ゲージ ---
   const score = a.independence?.score;
@@ -92,9 +86,19 @@ function render(data) {
            <span class="gauge-tick" style="left:calc(100% - 1px)"></span>
            <span class="gauge-mark" style="left:${pos.toFixed(1)}%"></span>
          </div>
-         <div class="gauge-scale"><span>広告そのもの</span><span>混在</span><span>独立した記事</span></div>`;
+         <div class="gauge-scale">
+           <span>${esc(t("scaleAd", lang))}</span>
+           <span>${esc(t("scaleMixed", lang))}</span>
+           <span>${esc(t("scaleIndependent", lang))}</span>
+         </div>`;
   const gaugePeek =
-    pos === null ? "" : pos > 66 ? "独立寄り" : pos < 33 ? "広告寄り" : "混在";
+    pos === null
+      ? ""
+      : pos > 66
+      ? t("peekIndependent", lang)
+      : pos < 33
+      ? t("peekAd", lang)
+      : t("peekMixed", lang);
 
   // --- 根拠 ---
   const flag = (key, text) => {
@@ -105,34 +109,35 @@ function render(data) {
   };
   const aff = data.signals?.affiliate_link_count ?? 0;
   const factsBody =
-    flag("firsthand", "自分で使った話が書かれている") +
-    flag("sponsored_disclosure", "PR・アフィリエイトの表示がある") +
-    flag("thin_content", "中身が薄い・引き写しが多い") +
+    flag("firsthand", t("factFirsthand", lang)) +
+    flag("sponsored_disclosure", t("factSponsored", lang)) +
+    flag("thin_content", t("factThin", lang)) +
     `<div class="fact"><span class="dot${aff > 0 ? " on" : ""}"></span>
-       <span>アフィリエイトリンク</span><span class="fact-val">${aff}本</span></div>`;
-  const hitCount = ["firsthand", "sponsored_disclosure", "thin_content"].filter(
-    (k) => (a[k]?.noul ?? 0) >= 0.5
-  ).length + (aff > 0 ? 1 : 0);
+       <span>${esc(t("factAffiliate", lang))}</span>
+       <span class="fact-val">${esc(t("countLinks", lang, { n: aff }))}</span></div>`;
+  const hitCount =
+    ["firsthand", "sponsored_disclosure", "thin_content"].filter((k) => (a[k]?.noul ?? 0) >= 0.5)
+      .length + (aff > 0 ? 1 : 0);
 
   // --- 内訳 ---
   const probsBody = [
-    ["genre", "ジャンル"],
-    ["stance", "書き手の立場"],
-    ["publisher", "発信主体"],
+    ["genre", t("groupGenre", lang)],
+    ["stance", t("groupStance", lang)],
+    ["publisher", t("groupPublisher", lang)],
   ]
-    .map(([k, t]) => {
+    .map(([k, heading]) => {
       const rows = probRows(a[k], k);
-      return rows ? `<div class="prob-group"><h4>${t}</h4>${rows}</div>` : "";
+      return rows ? `<div class="prob-group"><h4>${esc(heading)}</h4>${rows}</div>` : "";
     })
     .join("");
 
   view.innerHTML = `
-    <div class="verdict${hinted ? "" : " quiet"}">${esc(label)}${sure || !hinted ? "" : "らしい"}</div>
+    <div class="verdict${hinted ? "" : " quiet"}">${esc(headline)}</div>
     <div class="subline" style="margin-bottom:14px">${esc(subline)}</div>
-    ${section("gauge", "独立性", gaugePeek, gaugeBody)}
-    ${section("facts", "根拠", `${hitCount}件`, factsBody)}
-    ${section("probs", "分類の内訳", "", probsBody)}
-    ${section("raw", "生の応答", "", `<pre class="raw">${esc(JSON.stringify(a, null, 1))}</pre>`)}
+    ${section("gauge", t("secIndependence", lang), gaugePeek, gaugeBody)}
+    ${section("facts", t("secEvidence", lang), t("countHits", lang, { n: hitCount }), factsBody)}
+    ${section("probs", t("secBreakdown", lang), "", probsBody)}
+    ${section("raw", t("secRaw", lang), "", `<pre class="raw">${esc(JSON.stringify(a, null, 1))}</pre>`)}
   `;
 
   // 開閉を覚える
@@ -146,18 +151,24 @@ function render(data) {
 
 async function classify(force) {
   $("run").disabled = true;
-  message(force ? "再判定中…" : "判定中…");
+  message(t(force ? "rejudging" : "judging", lang));
   const res = await send({ type: "classify", force });
   $("run").disabled = false;
-  if (!res?.ok) return message(res?.error ?? "判定に失敗しました。", true);
-  if (res.data.config) config = res.data.config;
+  if (!res?.ok) return message(res?.error ?? t("failed", lang), true);
+  if (res.data.config) {
+    config = res.data.config;
+    lang = resolveLang(config);
+  }
   render(res.data);
-  $("run").textContent = "再判定";
+  $("run").textContent = t("rerun", lang);
   const tokens = res.data.usage?.input_tokens;
   $("meta").textContent = res.data.cached
-    ? "保存済みの判定"
+    ? t("cachedMeta", lang)
     : tokens
-    ? `${tokens.toLocaleString()} トークン・${Object.keys(resolveGenres(config)).length}分類`
+    ? t("usageMeta", lang, {
+        tokens: tokens.toLocaleString(),
+        classes: Object.keys(resolveGenres(config)).length,
+      })
     : "";
 }
 
@@ -167,6 +178,10 @@ $("options").addEventListener("click", () => chrome.runtime.openOptionsPage());
 (async () => {
   const res = await send({ type: "peek" });
   config = res?.config ?? (await loadConfig());
+  lang = resolveLang(config);
+  document.documentElement.lang = lang;
+  applyI18n(document, lang);
+
   if (res?.url) {
     try {
       $("host").textContent = new URL(res.url).hostname;
@@ -174,9 +189,9 @@ $("options").addEventListener("click", () => chrome.runtime.openOptionsPage());
   }
   if (res?.data) {
     render(res.data);
-    $("run").textContent = "再判定";
-    $("meta").textContent = "保存済みの判定";
+    $("run").textContent = t("rerun", lang);
+    $("meta").textContent = t("cachedMeta", lang);
   } else {
-    message("このページはまだ判定していません。");
+    message(t("notJudged", lang));
   }
 })();

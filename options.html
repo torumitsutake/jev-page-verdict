@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Page Verdict の設定</title>
+<title>Page Verdict settings</title>
 <style>
   :root { --paper:#f1f4f5; --ink:#161b20; --muted:#697480; --rule:#d3dade; --warn:#b06a12; }
   @media (prefers-color-scheme: dark) {
@@ -12,7 +12,7 @@
   body {
     max-width: 44rem; margin: 0 auto; padding: 48px 24px 80px;
     background: var(--paper); color: var(--ink);
-    font-family: "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",system-ui,sans-serif;
+    font-family: system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;
     font-size: 14px; line-height: 1.7;
   }
   h1 { font-size: 22px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 4px; }
@@ -53,7 +53,7 @@
           color: var(--ink); font-size: 12.5px; }
   .warn:empty { display: none; }
 
-  .custom-row { display: grid; grid-template-columns: 8rem 1fr auto; gap: 8px; margin-bottom: 8px; }
+  .custom-row { display: grid; grid-template-columns: 7rem 7rem 1fr auto; gap: 8px; margin-bottom: 8px; }
   .custom-list .custom-row { align-items: center; }
   .custom-row .del { background: none; color: var(--muted); border: 1px solid var(--rule); padding: 6px 10px; }
 
@@ -64,22 +64,25 @@
 </style>
 </head>
 <body>
-  <h1>Page Verdict の設定</h1>
-  <p class="sub">判定は Jev（TypeSafe AI）で行います。</p>
+  <h1 data-i18n="optTitle">Page Verdict settings</h1>
+  <p class="sub" data-i18n="optSub">Verdicts come from Jev (TypeSafe AI).</p>
 
-  <h2>APIキー</h2>
-  <p class="hint">console.typesafe.ai の Settings → API keys で発行したキー。</p>
-  <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="ts_..." />
+  <h2 data-i18n="optLangHead">Language</h2>
+  <p class="hint" data-i18n="optLangHint">Applies to this extension's own screens.</p>
+  <div class="row" style="margin-top:0">
+    <select id="lang"></select>
+  </div>
+
+  <h2 data-i18n="optKeyHead">API key</h2>
+  <p class="hint" data-i18n="optKeyHint">Issued at console.typesafe.ai under Settings &rarr; API keys.</p>
+  <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="apikey_..." />
   <div class="row">
-    <button id="saveKey">保存する</button>
+    <button id="saveKey" data-i18n="optSave">Save</button>
     <span class="status" id="keyStatus"></span>
   </div>
 
-  <h2>ジャンルの分類</h2>
-  <p class="hint">
-    Choice は選択肢上の確率分布を返すので、意味の重なるラベルを並べると確率がそこで割れて確信度が落ちます。
-    標準の6分類を出発点にして、足りないものだけ足すのが安全です。
-  </p>
+  <h2 data-i18n="optGenreHead">Genre classes</h2>
+  <p class="hint" data-i18n="optGenreHint">Start from the standard six.</p>
   <div class="row" style="margin-top:0">
     <select id="preset"></select>
     <span class="status" id="presetNote"></span>
@@ -88,37 +91,43 @@
   <div class="count" id="count"></div>
   <div class="warn" id="overlap"></div>
 
-  <h2>追加のラベル</h2>
-  <p class="hint">
-    英語の説明文がそのまま Jev の criteria になります。ここの書き方で精度が決まるので、
-    「専門家が数秒で判定できる」粒度で、他のラベルと重ならないように書いてください。
-  </p>
+  <h2 data-i18n="optExtraHead">Extra labels</h2>
+  <p class="hint" data-i18n="optExtraHint">The English description becomes the criteria sent to Jev.</p>
   <div class="custom-list" id="customList"></div>
   <div class="custom-row">
-    <input type="text" id="newJa" placeholder="表示名（日本語）" />
-    <input type="text" id="newEn" placeholder="Description in English" />
-    <button id="addCustom">追加</button>
+    <input type="text" id="newEnName" data-i18n-ph="optNameEn" placeholder="Name (English)" />
+    <input type="text" id="newJaName" data-i18n-ph="optNameJa" placeholder="Name (Japanese)" />
+    <input type="text" id="newCriteria" data-i18n-ph="optCriteria" placeholder="Criteria, in English" />
+    <button id="addCustom" data-i18n="optAdd">Add</button>
   </div>
 
-  <h2>判定の軸</h2>
-  <p class="hint">質問は並列評価されるので、軸を足しても応答時間はほとんど伸びません。</p>
+  <h2 data-i18n="optAxesHead">Axes</h2>
+  <p class="hint" data-i18n="optAxesHint">Questions are evaluated in parallel.</p>
   <div class="labels" id="axes"></div>
 
-  <h2>ポップアップの表示</h2>
-  <p class="hint">各セクションの初期状態。ポップアップで開閉すると、その状態が保存されます。</p>
+  <h2 data-i18n="optSerpHead">Colour-code Google results</h2>
+  <p class="hint" data-i18n="optSerpHint">Adds a coloured bar to each result on the Google results page.</p>
+  <div class="labels" id="serp"></div>
+  <div class="warn" id="serpWarn"></div>
+
+  <h2 data-i18n="optSectionsHead">Popup sections</h2>
+  <p class="hint" data-i18n="optSectionsHint">Initial state of each section.</p>
   <div class="labels" id="sections"></div>
 
   <div class="row" style="margin-top:28px">
-    <button id="save">分類設定を保存</button>
-    <button class="ghost" id="reset">標準に戻す</button>
-    <button class="ghost" id="clear">判定の保存を消す</button>
+    <button id="save" data-i18n="optSaveConfig">Save classification settings</button>
+    <button class="ghost" id="reset" data-i18n="optReset">Reset to standard</button>
+    <button class="ghost" id="clear" data-i18n="optClear">Delete saved verdicts</button>
     <span class="status" id="status"></span>
   </div>
 
   <div class="note">
-    <p><strong>設定を変えるとキャッシュは別扱いになります。</strong>ラベル構成のハッシュをキャッシュキーに混ぜているため、分類を変えた後のページは自動で再判定されます。古い判定は30日で消えます。</p>
-    <p><strong>APIキーの保存場所。</strong><code>chrome.storage.local</code> に平文で置かれます。拡張を読み込める人は誰でも取り出せます。業務端末で使うなら、この拡張専用に発行して上限を絞ったキーを使ってください。</p>
-    <p><strong>外部に送られるもの。</strong>アイコンを押したページに限り、URL・タイトル・見出し・本文の冒頭3,500文字・リンク統計が api.typesafe.ai に送信されます。押していないページは送信されません。</p>
+    <p><strong data-i18n="noteCacheHead">Changing settings starts a fresh cache.</strong>
+       <span data-i18n-html="noteCache"></span></p>
+    <p><strong data-i18n="noteKeyHead">Where the API key lives.</strong>
+       <span data-i18n-html="noteKey"></span></p>
+    <p><strong data-i18n="noteSentHead">What leaves your machine.</strong>
+       <span data-i18n-html="noteSent"></span></p>
   </div>
 
   <script src="options.js" type="module"></script>

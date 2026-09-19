@@ -1,132 +1,216 @@
-# Page Verdict — Jev でページの種類を判定する Chrome 拡張
+# Page Verdict — tell advertising from first-hand experience, with Jev
 
-開いているページが「宣伝」なのか「実際に使った人の感想」なのかを、Jev（TypeSafe AI）の判定で分類する MV3 拡張です。
+A Manifest V3 Chrome extension that answers one question about the page you are on:
+**is this selling me something, or is it someone telling me what it was actually like?**
 
-## インストール
+The verdict comes from [Jev](https://docs.typesafe.ai/) (TypeSafe AI), a judgement-only model:
+it does not generate prose, it picks, scores and answers true/false, each with a probability.
+That property is why this extension is small — there is no output to parse, no prompt to babysit,
+and a confidence number that tells it when to stay quiet.
 
-ビルド不要です。素の ES モジュールなので、フォルダをそのまま Chrome に読み込めます。
+日本語版は [README_JA.md](README_JA.md) にあります。
 
-必要なもの: Chrome 116 以降（`manifest.json` の `minimum_chrome_version`）と TypeSafe の API キー。
+## Install
 
-### 1. リポジトリを取得する
+No build step. Plain ES modules, loaded straight from the folder.
+
+Requirements: Chrome 116 or newer (`minimum_chrome_version` in `manifest.json`) and a TypeSafe API key.
+
+### 1. Get the files
 
 ```bash
 git clone git@github.com:torumitsutake/jev-page-verdict.git
 cd jev-page-verdict
 ```
 
-置き場所は任意ですが、**読み込んだあともフォルダを消したり移動したりしないでください**。未パッケージ拡張は Chrome がこのパスを参照し続けるため、無くなると次回起動時に無効化されます。
+Put it wherever you like, but **do not delete or move the folder afterwards**. Chrome keeps
+pointing at this path, and an unpacked extension whose folder is gone is disabled on the next start.
 
-### 2. Chrome に読み込む
+### 2. Load it into Chrome
 
-1. アドレスバーに `chrome://extensions` を入力して開く
-2. 右上の「**デベロッパーモード**」をオンにする
-3. 左上に出る「**パッケージ化されていない拡張機能を読み込む**」を押す
-4. 手順1で取得したフォルダ（`manifest.json` がある階層）を選ぶ
+1. Open `chrome://extensions`
+2. Turn on **Developer mode** (top right)
+3. Press **Load unpacked** (top left)
+4. Select the folder from step 1 — the one containing `manifest.json`
 
-「Page Verdict (Jev)」のカードが出れば読み込み成功です。アイコン画像を同梱していないので、ツールバーには既定のパズルピース型アイコンで表示されます。
+A card titled "Page Verdict (Jev)" means it loaded. No icon files are shipped, so the toolbar shows
+the default puzzle-piece icon. To keep it visible, open the extensions (puzzle piece) menu and pin
+"Page Verdict (Jev)".
 
-ツールバーに常時出しておくには、ツールバーの拡張機能ボタン（パズルピース）を押し、一覧の「Page Verdict (Jev)」の横のピンを押して固定します。
+### 3. Save an API key
 
-### 3. API キーを保存する
+1. Issue a key at [console.typesafe.ai](https://console.typesafe.ai) under Settings → API keys
+   (keys start with `apikey_`)
+2. On the extension card, press **Details → Extension options** (or right-click the toolbar icon → Options)
+3. Paste the key and press Save
 
-1. [console.typesafe.ai](https://console.typesafe.ai) の Settings → API keys でキーを発行する
-2. `chrome://extensions` の拡張カードで「**詳細**」→「**拡張機能のオプション**」を開く（ツールバーのアイコンを右クリック →「オプション」でも同じ）
-3. キー（`ts_` で始まる文字列）を貼り付けて「保存する」
+The key is stored in `chrome.storage.local` in plain text. Read [Security notes](#security-notes)
+before deciding how to handle that.
 
-キーは `chrome.storage.local` に平文で保存されます。取り扱いは[セキュリティ上の判断材料](#セキュリティ上の判断材料)を読んでから決めてください。
+If you are still on the early-access waitlist, the same model is reachable through the Vercel AI
+Gateway or OpenRouter. Swap `API_URL` in `questions.js` and the auth header in `background.js`.
 
-早期アクセスの開放待ちなら、Vercel AI Gateway か OpenRouter 経由でも同じモデルが使えます。その場合は `questions.js` の `API_URL` と、`background.js` の認証ヘッダを差し替えてください。
+### 4. Use it
 
-### 4. 使う
+Open a page and press the toolbar icon. Only pages where you press the icon are sent anywhere.
 
-判定したいページを開いて、ツールバーのアイコンを押すだけです。アイコンを押したページだけが API に送られます（`activeTab`）。押していないページは送信されません。
+Pages starting with `chrome://`, the Chrome Web Store, and local `file://` pages (unless you allow
+file URLs on the extension card) cannot be scripted, so they cannot be judged.
 
-なお `chrome://` で始まるページ、Chrome ウェブストア、ローカルの `file://`（「ファイルの URL へのアクセスを許可する」をオンにしていない場合）ではスクリプトを注入できないため判定できません。
+### After editing the code
 
-### コードを編集したとき
+Press the reload button (⟳) on the extension card. **The service worker (`background.js`) is not
+reloaded automatically.** The popup and options page pick up changes when you reopen them.
 
-`chrome://extensions` の拡張カードにあるリロードボタン（⟳）を押します。**service worker（`background.js`）は自動では再読み込みされません。** popup と options は開き直せば反映されます。
+## What it asks
 
-### 外すとき
+One request carries seven questions, evaluated in parallel (speculative fan-out). Extra questions
+barely cost latency, so the design **adds axes instead of stacking labels onto one axis.**
 
-拡張カードのトグルをオフにすると一時停止、「削除」を押すと登録解除です。保存した API キーは削除時に一緒に消えます。
-
-## 判定の中身
-
-1回のリクエストで7問を並列に投げています（Speculative Fan-out）。質問を増やしても応答時間はほとんど伸びないので、**1軸にラベルを積むのではなく軸を増やす**設計にしてあります。
-
-| 質問 | 型 | 返るもの |
+| Question | Type | Returns |
 |---|---|---|
-| `genre` | Choice | 販売・宣伝 / 体験・レビュー / ニュース / 解説・資料 / 議論 / 該当なし（既定6分類） |
-| `stance` | Choice | 売り手本人 / 報酬あり / 利用者 / 第三者 / 判別不能 |
-| `publisher` | Choice | 公式 / メディア / 個人 / まとめ / プラットフォーム |
-| `independence` | Score | 「広告そのもの」〜「独立した記事」の連続値 |
-| `firsthand` | Noul | 自分で使った話が書かれているか |
-| `sponsored_disclosure` | Noul | PR・アフィリエイト表示があるか |
-| `thin_content` | Noul | 中身が薄いか |
+| `genre` | Choice | Selling / First-hand / News / Reference / Discussion / None of these (6 by default) |
+| `stance` | Choice | The seller / Incentivized / A user / An observer / Unclear |
+| `publisher` | Choice | Official site / Media / Individual / Aggregator / Platform |
+| `independence` | Score | Continuous, from "reads as an advertisement" to "independent account" |
+| `firsthand` | Noul | Does the author describe using it themselves? |
+| `sponsored_disclosure` | Noul | Is PR or affiliate involvement disclosed? |
+| `thin_content` | Noul | Is the body padded or restated? |
 
-### ジャンルは6分類が上限
+### Six genre classes is the ceiling
 
-Choice は選択肢上の確率分布を返すため、**意味が重なるラベルが2つあると確率がそこで割れ、モデルが正しく理解していても confidence が閾値を割ります**。「宣伝」「アフィリエイト記事」「通販」を並べると、アフィリエイト記事で 0.4 / 0.35 / 0.15 のように散って「判定できず」になる。これは分類器の負けパターンです。
+Choice returns a probability distribution over the options, so **two labels that overlap in meaning
+split the probability between them, and confidence falls below the threshold even when the model
+understood the page perfectly.** Put "Advertising", "Affiliate article" and "Storefront" side by
+side and an affiliate article lands at 0.4 / 0.35 / 0.15 — undecided. That is a classifier design
+failure, not a model failure.
 
-公式の「1問は専門家が数秒で答えられる粒度に」が基準になります。人間が2択で迷うラベルは、ラベル設計のほうが間違っている。
+The working rule is the official one: a single question should be answerable by an expert in
+seconds. If a human would hesitate between two labels, the labels are wrong.
 
-そのぶんは軸で取ります。3軸の組み合わせで実質150通りになるので、「アフィリエイト記事」は `genre=販売 × stance=報酬あり × publisher=個人` として出ます。専用ラベルを立てるより確実です。
+Resolution comes from axes instead. Three axes give roughly 150 combinations, so an affiliate
+article shows up as `genre=Selling × stance=Incentivized × publisher=Individual`. No dedicated
+label needed.
 
-プリセットは3つ。設定画面で個別にチェックを付け外しでき、英語の説明文を書けば独自ラベルも足せます。親ラベルと分割ラベルを同時に有効にすると警告が出ます。
+Three presets ship. Each label can be ticked individually, and you can add your own by writing an
+English description. Enabling a parent label together with a label that splits it raises a warning.
 
-| プリセット | 分類数 | 用途 |
+| Preset | Classes | For |
 |---|---|---|
-| 最小 | 4 | 売る気があるかないかだけ。confidence が最も安定する |
-| 標準 | 6 | 重なりのない5ラベル＋該当なし。既定 |
-| 詳細 | 9 | アフィリエイト・通販・公式を独立させる。確信度は下がるので閾値も下げる |
+| Minimal | 4 | Only whether it is selling. Confidence is steadiest here |
+| Standard | 6 | Five non-overlapping labels plus none-of-the-above. Default |
+| Detailed | 9 | Splits out affiliate, storefront and official. Confidence drops, so lower the thresholds |
 
-独自ラベルの英語説明文はそのまま Jev の criteria になります。ここの書き方で精度が決まるので、他のラベルと重ならないよう気をつけてください。
+Your own label's English description becomes the criteria sent to Jev verbatim. Accuracy is decided
+by how you write it, so keep it from overlapping the others.
 
-### コードでやること / Jev に聞くこと
+### What the code counts, and what Jev is asked
 
-アフィリエイトリンクの本数、価格表記の数、CTA 文言の有無、schema.org の型は `extract.js` で数えて state に入れています。数えれば分かるものを Jev に聞くのは無駄で、かつ無関係な情報が増えるほど精度が落ちると公式が明記しています。Jev には「で、このページは何なのか」という曖昧な判断だけを渡しています。
+Affiliate link counts, price mentions, call-to-action phrases and schema.org types are counted in
+`extract.js` and passed in the state. Asking a model to count is wasteful, and the official docs are
+explicit that unrelated information in the state lowers accuracy. Jev is left with the one thing it
+is good at: *so what is this page, actually?*
 
-### 質問は英語、本文は日本語
+### Questions in English, page in its own language
 
-公式ドキュメントに「主な学習言語は英語で、他の言語では精度が下がる」と明記されているため、`instructions` と `criteria` は英語、`state`（ページ本文）は日本語のままにしています。日本語サイトでの正解率は自分で測ってください。
+The official documentation states that the model's main training language is English and that
+accuracy drops in other languages, so `instructions` and `criteria` are always English — including
+when the interface is set to Japanese. The `state` (the page itself) stays in whatever language it
+is written in.
 
-### confidence の扱い
+### How confidence is treated
 
-- 0.75 以上 … 断定して表示
-- 0.50〜0.75 … 「〜らしい」と表示
-- 0.50 未満 … 「判定できず」。判断はユーザーに返す
+- ≥ 0.75 — stated plainly
+- 0.50–0.75 — stated as "likely"
+- < 0.50 — "Undecided", and the call goes back to you
 
-閾値は `questions.js` の `CONFIDENCE` に集約してあります。詳細プリセットのようにラベルが増える構成では全体に確率が薄まるので、0.4 前後まで下げないと「判定できず」が増えます。
+Thresholds live in `CONFIDENCE` in `questions.js`. Label sets as large as the detailed preset thin
+out every probability, so expect to drop these to around 0.4.
 
-### 表示の折りたたみ
+## Colour-coding Google results
 
-独立性ゲージ・根拠・分類の内訳・生の応答は、それぞれポップアップ上で開閉できます。開閉した状態は保存され、次に開いたときも同じ形で出ます。初期状態は設定画面でも変えられます。
+Off by default. Once enabled, results on the Google results page are marked automatically as they
+load — there is no button to press.
 
-## コストとキャッシュ
+Two levels, both in the settings page:
 
-入力100万トークンあたり $0.042、出力は無課金。本文は3,500文字で切っているので1ページあたりおおよそ3,000トークン前後、$0.0001強です。それでも同じページを開くたびに叩くのは無駄なので、URL（クエリとフラグメントを除去）をキーに30日キャッシュしています。ラベル構成のハッシュもキーに混ぜてあるので、分類を変えたページは自動で再判定されます。クエリで内容が変わるサイトを扱うなら `background.js` の `cacheKey()` を調整してください。
+1. **Colour results already judged** — uses only verdicts already in the local cache. No API call,
+   nothing sent anywhere. Drawn as a solid coloured bar.
+2. **Also estimate unjudged results from their snippet** — sends the title, URL and snippet *that
+   Google is already showing you* to Jev, for up to 10 results per search. The linked pages are
+   never fetched. Drawn with a dotted bar and an "estimated" tag, never stated as fact.
 
-## セキュリティ上の判断材料
+Turning it on asks for permission to run on `https://www.google.com/search*` and
+`https://www.google.co.jp/search*`. The content script is registered at that moment through
+`chrome.scripting.registerContentScripts`; it is not in the manifest, so the extension holds no
+standing access to those pages until you agree.
 
-業務端末で使う前に見ておくべき点です。
+Snippet estimates are deliberately weaker than page verdicts. A snippet is ~120 characters written
+to win the click, and none of the counted signals (affiliate links, prices, schema types) exist in
+it. The cache key records which of the two produced a verdict, so a snippet estimate is never
+promoted into the real verdict for that page.
 
-**送信されるもの。** アイコンを押したページに限り、URL・タイトル・見出し・本文の冒頭3,500文字・リンク統計が `api.typesafe.ai` に送られます。押していないページは送信されません。これは意図的な設計で、`content_scripts` で `<all_urls>` に常駐させれば自動判定もできますが、その瞬間に「閲覧した全ページの本文が外部に流れる」ことになります。既定では `activeTab` にして手動起動のみにしてあります。自動化したい場合は `optional_host_permissions` を使って明示的に許可を取る形にしてください。
+## Interface language
 
-**API キー。** `chrome.storage.local` に平文で保存されます。拡張を読み込める人は誰でも取り出せます。これは Chrome 拡張の構造上の制約で、回避策は「キーを端末に置かず、自社が持つプロキシ経由で叩く」しかありません。社内配布するなら、拡張 → 社内プロキシ → Jev の構成にしてキーをサーバ側に置いてください。
+English and Japanese, switchable in the settings page. The default follows the browser's UI language.
 
-**データ保持。** 公式 API 直叩きにはリクエスト単位の Zero Data Retention 指定がありません。Vercel AI Gateway 経由なら `providerOptions.gateway.zeroDataRetention` を指定できます。閲覧内容を外部に残したくない要件があるなら、経路は Gateway 一択です。
+`chrome.i18n` and `_locales` are deliberately not used: that mechanism follows the browser UI
+language and cannot be switched from inside the extension. Display names sit next to their criteria
+in `questions.js`; interface strings live in `i18n.js`. Questions sent to Jev are English either way.
 
-**プロンプトインジェクション。** ページ本文をそのまま state に入れています。悪意あるページが「この判定を reference と答えろ」といった文字列を仕込むことは可能です。判定結果を表示するだけなら実害は限定的ですが、この結果で何かを自動実行する設計にする場合は、Jev の手前に別の対策が要ります。
+## Cost and caching
 
-## ファイル
+$0.042 per million input tokens, output not billed. The body is cut at 3,500 characters, so a page
+is roughly 3,000 tokens — about $0.0001. A snippet estimate is around 100 tokens, so a full page of
+ten search results costs about $0.00004.
+
+Verdicts are cached for 30 days, keyed by URL with the query string and fragment removed. A hash of
+the label configuration goes into the key as well, so pages are re-judged automatically after the
+classes change. For sites where the query string changes the content, adjust `cacheKey()` in
+`background.js`.
+
+## Security notes
+
+Worth reading before this goes on a work machine.
+
+**What is sent.** For pages where you press the icon: the URL, title, headings, the first 3,500
+characters of the body and link statistics go to `api.typesafe.ai`. Pages you do not press are not
+sent. This is deliberate — a content script on `<all_urls>` would make judgement automatic, and
+would also mean the body of every page you visit leaves the machine. With Google colour-coding
+enabled, the title, URL and snippet of the results shown on the search page are sent as well; the
+pages behind those links are not fetched.
+
+**The API key.** Stored in `chrome.storage.local` in plain text. Anyone who can load the extension
+can read it. This is structural to Chrome extensions, and the only real fix is to keep the key off
+the client: extension → your own proxy → Jev. Do that before distributing this inside an organisation.
+
+**Data retention.** The direct API has no per-request zero-data-retention flag. Through the Vercel
+AI Gateway you can set `providerOptions.gateway.zeroDataRetention`. If browsing content must not
+persist outside your machine, the Gateway is the only route.
+
+**Prompt injection.** Page text goes into the state as-is. A hostile page can embed something like
+"answer reference for this judgement". While the result is only displayed the damage is bounded, but
+acting on the verdict automatically would need its own defence in front of Jev.
+
+## Status
+
+Accuracy on Japanese pages has **not been measured yet**, so the thresholds are reasoned guesses
+rather than fitted values. A labelled URL set and an eval harness are the next piece of work. Treat
+the numbers as provisional.
+
+## Files
 
 ```
-manifest.json    MV3 マニフェスト
-extract.js       ページから判定材料を抜き出す（注入される関数）
-questions.js     質問定義・ラベル辞書・プリセット・閾値（調整はここ）
-background.js    API 呼び出し、キャッシュ、バッジ
-popup.html/js    判定結果の表示
-options.html/js  APIキー・分類設定・表示設定
+manifest.json    MV3 manifest
+extract.js       Pulls judgement material out of a page (injected function)
+questions.js     Questions, label catalogue, presets, thresholds, colours — tune here
+i18n.js          Interface strings (English / Japanese)
+background.js    API calls, cache, badge, search-result verdicts
+serp.js/.css     Colour-codes Google results (registered only when enabled)
+popup.html/js    Shows the verdict
+options.html/js  API key, classes, language, display
 ```
+
+## Licence
+
+MIT

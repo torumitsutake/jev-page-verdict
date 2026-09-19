@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <style>
@@ -15,7 +15,7 @@
   body {
     width: 352px; margin: 0; padding: 18px 18px 14px;
     background: var(--paper); color: var(--ink);
-    font-family: "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",system-ui,sans-serif;
+    font-family: system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;
     font-size: 13px; line-height: 1.6; -webkit-font-smoothing: antialiased;
   }
 
@@ -95,11 +95,11 @@
 </head>
 <body>
   <div class="host" id="host"></div>
-  <div id="view"><div class="msg" id="msg">読み込み中…</div></div>
+  <div id="view"><div class="msg" id="msg" data-i18n="loading">Loading…</div></div>
 
   <footer>
-    <button id="run">判定する</button>
-    <button class="ghost" id="options">設定</button>
+    <button id="run" data-i18n="run">Judge this page</button>
+    <button class="ghost" id="options" data-i18n="openOptions">Settings</button>
     <span class="meta" id="meta"></span>
   </footer>
 
