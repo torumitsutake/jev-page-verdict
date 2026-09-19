@@ -102,6 +102,7 @@ function renderToggles() {
   const axes = [
     ["stance", t("axisStance", lang), t("axisStanceNote", lang)],
     ["publisher", t("axisPublisher", lang), t("axisPublisherNote", lang)],
+    ["product", t("axisProduct", lang), t("axisProductNote", lang)],
   ];
   $("axes").innerHTML = axes
     .map(
@@ -135,7 +136,7 @@ function renderSerp() {
     [
       "snippet",
       t("serpSnippet", lang),
-      t("serpSnippetNote", lang, { n: SERP.maxResults }),
+      t("serpSnippetNote", lang, { n: SERP.maxPerPage }),
       !config.serp.enabled,
     ],
   ];

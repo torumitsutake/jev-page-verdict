@@ -63,6 +63,12 @@ async function clearCache() {
 }
 
 // --- Jev 呼び出し ---------------------------------------------------------
+/** 文言は翻訳済みで返したいが、分岐は文字列比較したくない。code を別に付ける。 */
+function tagged(err, code) {
+  err.code = code;
+  return err;
+}
+
 async function callJev(state, questions, lang) {
   const { apiKey } = await chrome.storage.local.get("apiKey");
   if (!apiKey) throw new Error(t("errNoKey", lang));
@@ -85,8 +91,8 @@ async function callJev(state, questions, lang) {
     clearTimeout(timer);
   }
 
-  if (res.status === 401) throw new Error(t("errAuth", lang));
-  if (res.status === 429) throw new Error(t("errRate", lang));
+  if (res.status === 401) throw tagged(new Error(t("errAuth", lang)), "auth");
+  if (res.status === 429) throw tagged(new Error(t("errRate", lang)), "rate_limit");
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw new Error(t("errHttp", lang, { status: res.status, detail: detail.slice(0, 200) }));
@@ -197,7 +203,7 @@ function toVerdict(result, config, src) {
 async function serpLookup(urls, config) {
   const fp = configFingerprint(config);
   const out = {};
-  for (const url of urls.slice(0, SERP.maxResults)) {
+  for (const url of urls.slice(0, SERP.batchSize)) {
     const page = await readCache(cacheKey(url, fp, "page"));
     const hit = page ?? (config.serp?.snippet ? await readCache(cacheKey(url, fp, "snippet")) : null);
     out[url] = hit ? toVerdict(hit, config, page ? "page" : "snippet") : null;
@@ -225,18 +231,17 @@ async function judgeSnippet(item, config, lang) {
 }
 
 async function serpJudge(items, config) {
-  if (!config.serp?.enabled || !config.serp?.snippet) return {};
+  if (!config.serp?.enabled || !config.serp?.snippet) return { verdicts: {}, halted: null };
   const lang = resolveLang(config);
   const fp = configFingerprint(config);
 
-  const todo = items
-    .filter((it) => /^https?:/.test(it.url || ""))
-    .slice(0, SERP.maxResults);
+  const todo = items.filter((it) => /^https?:/.test(it.url || "")).slice(0, SERP.batchSize);
 
   const out = {};
   let cursor = 0;
+  let halt = null; // レート制限・認証エラーが出たら残りは投げない
   const worker = async () => {
-    while (cursor < todo.length) {
+    while (cursor < todo.length && !halt) {
       const item = todo[cursor++];
       const key = cacheKey(item.url, fp, "snippet");
       try {
@@ -248,13 +253,15 @@ async function serpJudge(items, config) {
         out[item.url] = toVerdict(hit, config, "snippet");
       } catch (err) {
         // 1件失敗しても他は出す。色が付かないだけで実害はない。
+        // ただしレート制限とキー拒否は残り全部が同じ結果になるので、そこで止める。
+        if (err?.code === "rate_limit" || err?.code === "auth") halt = err;
         out[item.url] = null;
         console.warn("[Page Verdict] snippet judge failed", item.url, err);
       }
     }
   };
   await Promise.all(Array.from({ length: Math.min(SERP.concurrency, todo.length) }, worker));
-  return out;
+  return { verdicts: out, halted: halt ? String(halt.message) : null };
 }
 
 // --- content script の登録 ------------------------------------------------
@@ -315,6 +322,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true, removed: await clearCache() });
       } else if (msg.type === "syncSerp") {
         sendResponse({ ok: true, active: await syncSerpScript() });
+      } else if (msg.type === "serpConfig") {
+        // content script に定数を持たせないため、上限もここから配る。
+        const config = await loadConfig();
+        sendResponse({
+          ok: true,
+          snippetMode: !!config.serp?.snippet,
+          maxPerPage: SERP.maxPerPage,
+          batchSize: SERP.batchSize,
+          snippetChars: SERP.snippetChars,
+          debounceMs: SERP.debounceMs,
+        });
       } else if (msg.type === "serpLookup") {
         const config = await loadConfig();
         sendResponse({
@@ -324,7 +342,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         });
       } else if (msg.type === "serpJudge") {
         const config = await loadConfig();
-        sendResponse({ ok: true, verdicts: await serpJudge(msg.items ?? [], config) });
+        sendResponse({ ok: true, ...(await serpJudge(msg.items ?? [], config)) });
       }
     } catch (err) {
       sendResponse({ ok: false, error: String(err?.message || err) });

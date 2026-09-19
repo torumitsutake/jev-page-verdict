@@ -1,19 +1,18 @@
 /**
  * Google の検索結果に色帯を付ける content script。
  *
- * ここは描くだけで、判定にも表示文言にも関与しない。色・ラベル・説明文は
- * background が組み立てて渡す（ラベルと閾値を questions.js の外に散らさないため）。
+ * ここは描くだけ。色も文言も件数の上限も background から受け取る
+ * （閾値と定数を questions.js の外に散らさないため。content script は
+ * ES モジュールを import できないので、この形でないと二重化する）。
  *
  * 設定でオンにして許可を取ったときだけ chrome.scripting.registerContentScripts で
  * 登録される。マニフェストには静的に書かない。
  */
 (() => {
-  const MAX_PER_PAGE = 10; // 1ページで扱う件数の上限。background 側でも同じ上限をかける
-  const SNIPPET_CHARS = 320;
-  const DEBOUNCE_MS = 400;
-
   const done = new Set(); // 処理済みの URL
-  let budget = MAX_PER_PAGE;
+  let limits = null; // background から受け取る上限
+  let budget = 0; // このページで残り何件見るか
+  let running = false;
   let timer = null;
 
   /* --- 収集 ------------------------------------------------------------ */
@@ -43,8 +42,7 @@
       const u = new URL(href, location.href);
       if (/(^|\.)google\./.test(u.hostname) && u.pathname === "/url") {
         const q = u.searchParams.get("q") || u.searchParams.get("url");
-        if (q) return new URL(q).toString();
-        return null;
+        return q ? new URL(q).toString() : null;
       }
       if (!/^https?:$/.test(u.protocol)) return null;
       if (/(^|\.)google\./.test(u.hostname)) return null; // 検索内リンクは対象外
@@ -57,13 +55,29 @@
   function snippetOf(block, title) {
     const text = (block.innerText || "").replace(/\s+/g, " ").trim();
     const cut = title && text.startsWith(title) ? text.slice(title.length) : text;
-    return cut.trim().slice(0, SNIPPET_CHARS);
+    return cut.trim().slice(0, limits.snippetChars);
+  }
+
+  /** 未処理の結果を最大 n 件まで取る。 */
+  function collect(n) {
+    const items = [];
+    for (const { block, a, h3 } of resultBlocks()) {
+      if (items.length >= n) break;
+      block.dataset.pvSeen = "1";
+      if (isAd(block)) continue;
+      const url = realUrl(a.href);
+      if (!url || done.has(url)) continue;
+      done.add(url);
+      const title = (h3.innerText || "").trim();
+      items.push({ url, title, snippet: snippetOf(block, title), block });
+    }
+    return items;
   }
 
   /* --- 描画 ------------------------------------------------------------ */
 
   function paint(block, verdict) {
-    if (!verdict || block.dataset.pvPainted) return;
+    if (!block || !verdict || block.dataset.pvPainted) return;
     block.dataset.pvPainted = "1";
     block.classList.add("pv-block");
     if (verdict.estimated) block.classList.add("pv-estimated");
@@ -87,53 +101,60 @@
     }
   }
 
-  async function run() {
-    if (budget <= 0) return;
-
-    const items = [];
-    for (const { block, a, h3 } of resultBlocks()) {
-      block.dataset.pvSeen = "1";
-      if (isAd(block)) continue;
-      const url = realUrl(a.href);
-      if (!url || done.has(url)) continue;
-      done.add(url);
-      items.push({
-        url,
-        title: (h3.innerText || "").trim(),
-        snippet: snippetOf(block, (h3.innerText || "").trim()),
-        block,
-      });
-      if (items.length >= budget) break;
-    }
-    if (!items.length) return;
-    budget -= items.length;
-
+  async function processBatch(items) {
     const byUrl = new Map(items.map((it) => [it.url, it.block]));
+    const payload = items.map(({ url, title, snippet }) => ({ url, title, snippet }));
 
     // 1. 判定済みのものだけ先に塗る。ここでは何も送信されない。
-    const cached = await ask({ type: "serpLookup", urls: items.map((it) => it.url) });
-    if (!cached?.ok) return;
+    const cached = await ask({ type: "serpLookup", urls: payload.map((it) => it.url) });
+    if (!cached?.ok) return false;
     for (const [url, verdict] of Object.entries(cached.verdicts ?? {})) {
       if (verdict) paint(byUrl.get(url), verdict);
     }
 
     // 2. 残りをスニペットから推定する（設定でオンのときだけ）。
-    if (!cached.snippetMode) return;
-    const rest = items
-      .filter((it) => !cached.verdicts?.[it.url])
-      .map(({ url, title, snippet }) => ({ url, title, snippet }));
-    if (!rest.length) return;
+    if (!cached.snippetMode) return true;
+    const rest = payload.filter((it) => !cached.verdicts?.[it.url]);
+    if (!rest.length) return true;
 
     const judged = await ask({ type: "serpJudge", items: rest });
-    if (!judged?.ok) return;
+    if (!judged?.ok) return false;
     for (const [url, verdict] of Object.entries(judged.verdicts ?? {})) {
       if (verdict) paint(byUrl.get(url), verdict);
+    }
+    // レート制限やキー拒否が出たら、このページではもう投げない。
+    if (judged.halted) {
+      console.warn("[Page Verdict]", judged.halted);
+      budget = 0;
+    }
+    return true;
+  }
+
+  async function run() {
+    if (running) return;
+    running = true;
+    try {
+      if (!limits) {
+        const res = await ask({ type: "serpConfig" });
+        if (!res?.ok) return;
+        limits = res;
+        budget = res.maxPerPage;
+      }
+      // そのページに出ている結果は全部見る。batchSize ずつ塗っていく。
+      while (budget > 0) {
+        const items = collect(Math.min(limits.batchSize, budget));
+        if (!items.length) break;
+        budget -= items.length;
+        if (!(await processBatch(items))) break;
+      }
+    } finally {
+      running = false;
     }
   }
 
   function schedule() {
     clearTimeout(timer);
-    timer = setTimeout(run, DEBOUNCE_MS);
+    timer = setTimeout(run, limits?.debounceMs ?? 400);
   }
 
   schedule();

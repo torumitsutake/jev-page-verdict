@@ -48,7 +48,7 @@ Choice は選択肢上の確率分布を返すため、**意味が重なるラ�
 「通販」を並べると 0.4 / 0.35 / 0.15 に散って「判定できず」になる。
 
 解像度が欲しいときはラベルではなく軸を足す。質問は並列評価されるので応答時間は
-ほとんど伸びない。現在3軸（`genre` / `stance` / `publisher`）で実質150通り。
+ほとんど伸びない。現在4軸（`genre` / `stance` / `publisher` / `product`）で数百通り。
 「アフィリエイト記事」は `genre=commerce × stance=incentivized × publisher=individual`
 として出るので、専用ラベルは要らない。
 
@@ -86,7 +86,17 @@ Choice は選択肢上の確率分布を返すため、**意味が重なるラ�
 それ未満は「判定できず」でユーザーに判断を返す。勝手に上位1件を表示する実装に
 戻さないこと。
 
-### 7. 検索結果の色分けは2段階で、既定は両方オフ
+### 7. product 軸は stance と別物。統合しないこと
+
+`product`（公式 / 正規販売店 / マーケットプレイス出品 / 第三者の宣伝 / 商品ページではない）は
+「その商品の作り手との関係」を聞いている。`stance` の「書き手の利害」とは別軸で、正規販売店は
+`stance=seller` だが作り手ではなく、公式ストアとマーケットプレイス出品は stance では割れない。
+まとめると設計判断1のラベル重なりを自分で作ることになる。
+
+「商品ページではない」が該当なしにあたる。これを外すと、商品と無関係なページで確率が
+他の4つに散って毎回 confidence を割る。
+
+### 8. 検索結果の色分けは2段階で、既定は両方オフ
 
 `serp.enabled` はキャッシュにある判定だけを描く（送信ゼロ）。`serp.snippet` を足すと
 未判定の結果をスニペットから推定する。オンにするとき `chrome.permissions.request` で
@@ -96,11 +106,15 @@ Google 検索ページの許可を取り、`chrome.scripting.registerContentScri
 スニペット推定は材料が `extract.js` の数値を1つも含まない。断定させず点線で描き、
 `CONFIDENCE.snippet` を割ったら何も描かない。間違った色を置くより無色のほうがまし。
 
-### 8. content script は色も文言も持たない
+### 9. content script は色も文言も件数も持たない
 
-`serp.js` は background が組み立てた `{ color, chip, title }` を描くだけ。ラベルと
-閾値を `questions.js` の外に散らさないため。content script は ES モジュールを
-import できないので、この形でないと定数が二重化する。
+`serp.js` は background が組み立てた `{ color, chip, title }` を描くだけで、
+上限も `serpConfig` メッセージで受け取る。ラベル・閾値・定数を `questions.js` の外に
+散らさないため。content script は ES モジュールを import できないので、この形でないと
+定数が二重化する。
+
+検索結果はそのページに出ている全件を見る（`SERP.batchSize` ずつ、`maxPerPage` が安全弁）。
+レート制限とキー拒否は残り全件が同じ結果になるので、そこで打ち切ること。
 
 ## 未着手（優先順）
 

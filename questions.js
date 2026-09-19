@@ -131,7 +131,7 @@ export const DEFAULT_CONFIG = {
   preset: "standard",
   genres: PRESETS.standard.genres,
   customGenres: [], // [{ key, name: { en, ja }, criteria }]
-  axes: { stance: true, publisher: true },
+  axes: { stance: true, publisher: true, product: true },
   sections: { gauge: true, facts: true, probs: false, raw: false },
   serp: { enabled: false, snippet: false },
 };
@@ -250,6 +250,44 @@ export const PUBLISHER_LABELS = {
   },
 };
 
+/**
+ * 商品を出しているページで「誰が出しているのか」を見る軸。
+ *
+ * stance（売り手 / 報酬あり / 利用者 / 第三者）と重なりそうに見えるが、別物。
+ * stance は「書き手の利害」、こちらは「その商品の作り手との関係」を聞いている。
+ * 正規販売店は stance=seller だが作り手ではないし、公式ストアと
+ * マーケットプレイス出品は stance では区別できない。
+ *
+ * 末尾の not_product が「該当なし」にあたる。商品ページでないときの逃げ道が
+ * ないと、無関係なページで確率が散る。
+ */
+export const PRODUCT_LABELS = {
+  brand_official: {
+    name: { en: "From the brand", ja: "公式（作り手自身）" },
+    criteria:
+      "The maker or brand of the product is presenting it themselves: their own storefront, product page, specification, or announcement.",
+  },
+  authorized_seller: {
+    name: { en: "Authorized seller", ja: "正規の販売店" },
+    criteria:
+      "A named retailer, dealer, or distributor selling the product with the maker's sanction. It sells the product but did not make it.",
+  },
+  marketplace_listing: {
+    name: { en: "Marketplace listing", ja: "マーケットプレイス出品" },
+    criteria:
+      "An item posted by an individual or a shop on a marketplace, auction, or flea-market platform, where the platform is not the seller.",
+  },
+  third_party_promo: {
+    name: { en: "Third-party promotion", ja: "第三者の宣伝" },
+    criteria:
+      "Someone other than the maker or an authorized seller promoting the product to earn from it: an affiliate or ranking article, a sponsored post, or an ad landing page.",
+  },
+  not_product: {
+    name: { en: "Not a product page", ja: "商品ページではない" },
+    criteria: "The page does not present a specific purchasable product.",
+  },
+};
+
 export const TRUST_SCALE = [
   "Reads as an advertisement.",
   "Mixed: some substance, but shaped around a product.",
@@ -303,6 +341,14 @@ export function buildQuestions(config) {
       criteria: criteriaOf(PUBLISHER_LABELS),
     };
   }
+  if (config.axes?.product) {
+    q.product = {
+      type: "choice",
+      instructions:
+        "If this page presents a specific product for sale, what is the publisher's relationship to whoever makes that product? Judge from who runs the page, not from how favourable the wording is.",
+      criteria: criteriaOf(PRODUCT_LABELS),
+    };
+  }
   return q;
 }
 
@@ -334,10 +380,15 @@ export function buildSnippetQuestions(config) {
 }
 
 /** 表示用のラベル引き。未知キーはそのまま返す。 */
+const LABEL_TABLES = {
+  stance: STANCE_LABELS,
+  publisher: PUBLISHER_LABELS,
+  product: PRODUCT_LABELS,
+};
+
 export function labelOf(kind, key, config) {
   const lang = resolveLang(config);
-  const table =
-    kind === "genre" ? resolveGenres(config) : kind === "stance" ? STANCE_LABELS : PUBLISHER_LABELS;
+  const table = kind === "genre" ? resolveGenres(config) : LABEL_TABLES[kind] ?? {};
   return pick(table[key]?.name, lang) || key;
 }
 
@@ -373,9 +424,15 @@ export function verdictColor(key, known = true) {
 export const SERP = {
   // 許可を求めるホスト。増やすほど権限ダイアログが重くなるので必要な分だけ。
   origins: ["https://www.google.com/search*", "https://www.google.co.jp/search*"],
-  maxResults: 10, // 1ページあたり判定する件数の上限
+
+  // そのページに出ている結果は全部見る。maxPerPage は安全弁で、
+  // Google 自身のページあたり最大表示件数と同じ。無限スクロールで
+  // 際限なく増えるのを止めるためだけにある。
+  maxPerPage: 100,
+  batchSize: 20, // 1往復で扱う件数。描画を早く始めるために分ける
   concurrency: 4, // 同時リクエスト数
   snippetChars: 320, // スニペットの切り詰め
+  debounceMs: 400, // DOM が落ち着くのを待つ時間
 };
 
 /**

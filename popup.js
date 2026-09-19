@@ -68,6 +68,14 @@ function render(data) {
   if (a.stance && a.stance.confidence >= CONFIDENCE.hint) {
     parts.push(labelOf("stance", a.stance.choice, config));
   }
+  // 商品ページでないときは出さない。出すと毎回「商品ページではない」が並ぶ。
+  if (
+    a.product &&
+    a.product.confidence >= CONFIDENCE.hint &&
+    a.product.choice !== "not_product"
+  ) {
+    parts.push(labelOf("product", a.product.choice, config));
+  }
   const join = t("subJoin", lang);
   const subline =
     (parts.length ? parts.join(join) : t("authorUnknown", lang)) +
@@ -124,6 +132,7 @@ function render(data) {
     ["genre", t("groupGenre", lang)],
     ["stance", t("groupStance", lang)],
     ["publisher", t("groupPublisher", lang)],
+    ["product", t("groupProduct", lang)],
   ]
     .map(([k, heading]) => {
       const rows = probRows(a[k], k);

@@ -64,7 +64,7 @@ reloaded automatically.** The popup and options page pick up changes when you re
 
 ## What it asks
 
-One request carries seven questions, evaluated in parallel (speculative fan-out). Extra questions
+One request carries eight questions, evaluated in parallel (speculative fan-out). Extra questions
 barely cost latency, so the design **adds axes instead of stacking labels onto one axis.**
 
 | Question | Type | Returns |
@@ -72,6 +72,7 @@ barely cost latency, so the design **adds axes instead of stacking labels onto o
 | `genre` | Choice | Selling / First-hand / News / Reference / Discussion / None of these (6 by default) |
 | `stance` | Choice | The seller / Incentivized / A user / An observer / Unclear |
 | `publisher` | Choice | Official site / Media / Individual / Aggregator / Platform |
+| `product` | Choice | From the brand / Authorized seller / Marketplace listing / Third-party promotion / Not a product page |
 | `independence` | Score | Continuous, from "reads as an advertisement" to "independent account" |
 | `firsthand` | Noul | Does the author describe using it themselves? |
 | `sponsored_disclosure` | Noul | Is PR or affiliate involvement disclosed? |
@@ -88,9 +89,16 @@ failure, not a model failure.
 The working rule is the official one: a single question should be answerable by an expert in
 seconds. If a human would hesitate between two labels, the labels are wrong.
 
-Resolution comes from axes instead. Three axes give roughly 150 combinations, so an affiliate
+Resolution comes from axes instead. Four axes give several hundred combinations, so an affiliate
 article shows up as `genre=Selling × stance=Incentivized × publisher=Individual`. No dedicated
 label needed.
+
+`product` answers the question the other axes cannot: for a page showing something you can buy,
+**is this the brand itself, a shop the brand sanctions, someone's marketplace listing, or an
+outsider promoting it for a cut?** `stance` is about the writer's interest, which is a different
+thing — an authorized dealer is a seller but not the maker, and an official store and a
+marketplace listing are both `stance=The seller`. The label `Not a product page` is the
+none-of-the-above escape, so ordinary pages do not scatter probability across the other four.
 
 Three presets ship. Each label can be ticked individually, and you can add your own by writing an
 English description. Enabling a parent label together with a label that splits it raises a warning.
@@ -161,8 +169,8 @@ in `questions.js`; interface strings live in `i18n.js`. Questions sent to Jev ar
 ## Cost and caching
 
 $0.042 per million input tokens, output not billed. The body is cut at 3,500 characters, so a page
-is roughly 3,000 tokens — about $0.0001. A snippet estimate is around 100 tokens, so a full page of
-ten search results costs about $0.00004.
+is roughly 3,000 tokens — about $0.0001. A snippet estimate is around 100 tokens, so a search page
+of ten results costs about $0.00004, and a hundred-result page about $0.0004.
 
 Verdicts are cached for 30 days, keyed by URL with the query string and fragment removed. A hash of
 the label configuration goes into the key as well, so pages are re-judged automatically after the

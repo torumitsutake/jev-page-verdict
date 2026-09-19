@@ -72,6 +72,7 @@ const S = {
   groupGenre: { en: "Genre", ja: "ジャンル" },
   groupStance: { en: "Stance", ja: "書き手の立場" },
   groupPublisher: { en: "Publisher", ja: "発信主体" },
+  groupProduct: { en: "Who is selling it", ja: "誰が売っているか" },
 
   /* --- 検索結果の色分け --- */
   serpEstimated: { en: "estimated", ja: "推定" },
@@ -167,6 +168,12 @@ const S = {
     ja: "公式 / メディア / 個人 / まとめ / プラットフォーム。",
   },
 
+  axisProduct: { en: "Who is selling it", ja: "誰が売っているか" },
+  axisProductNote: {
+    en: "For pages showing a product: the brand itself / an authorized seller / a marketplace listing / a third party promoting it. Separate from stance — an authorized seller is still a seller, but not the maker.",
+    ja: "商品が出ているページで、公式（作り手自身）/ 正規の販売店 / マーケットプレイス出品 / 第三者の宣伝 のどれか。「書き手の立場」とは別物で、正規販売店は売り手だが作り手ではない。",
+  },
+
   optSerpHead: { en: "Colour-code Google results", ja: "Google 検索結果での色分け" },
   optSerpHint: {
     en: "Adds a coloured bar to each result on the Google results page, automatically. Off by default; turning it on asks for permission to run on Google search pages. These two take effect immediately — no need to press Save.",
@@ -179,8 +186,8 @@ const S = {
   },
   serpSnippet: { en: "Also estimate unjudged results from their snippet", ja: "未判定の結果をスニペットから推定する" },
   serpSnippetNote: {
-    en: "Sends the title, URL and snippet that Google already shows to Jev, for up to {n} results per search. The page body is never fetched. Estimates are drawn dashed and never stated as fact.",
-    ja: "Google が既に表示しているタイトル・URL・スニペットを、1検索あたり最大{n}件まで Jev に送ります。ページ本文は取得しません。推定は点線で描かれ、断定はしません。",
+    en: "Sends the title, URL and snippet that Google already shows to Jev, for every result on the page (up to {n}). The page body behind the link is never fetched. Estimates are drawn dotted and never stated as fact.",
+    ja: "Google が既に表示しているタイトル・URL・スニペットを、そのページに出ている結果すべて（最大{n}件）について Jev に送ります。リンク先の本文は取得しません。推定は点線で描かれ、断定はしません。",
   },
   serpPermDenied: {
     en: "Permission was not granted, so the setting stays off.",
