@@ -169,8 +169,8 @@ const S = {
 
   optSerpHead: { en: "Colour-code Google results", ja: "Google 検索結果での色分け" },
   optSerpHint: {
-    en: "Adds a coloured bar to each result on the Google results page. Off by default; turning it on asks for permission to run on Google search pages.",
-    ja: "Google の検索結果ページで、各結果に色帯を付けます。既定はオフで、オンにするときに Google 検索ページで動く許可を求めます。",
+    en: "Adds a coloured bar to each result on the Google results page, automatically. Off by default; turning it on asks for permission to run on Google search pages. These two take effect immediately — no need to press Save.",
+    ja: "Google の検索結果ページで、各結果に自動で色帯を付けます。既定はオフで、オンにするときに Google 検索ページで動く許可を求めます。この2つは保存ボタンを押さなくてもすぐ反映されます。",
   },
   serpEnable: { en: "Colour results already judged", ja: "判定済みの結果を色分けする" },
   serpEnableNote: {
