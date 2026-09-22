@@ -69,6 +69,45 @@ function tagged(err, code) {
   return err;
 }
 
+/**
+ * 応答の形を1か所で検めてから返す。
+ *
+ * ここを通さないと、200 で想定外の形が返ったときに answers が undefined のまま
+ * 30日 TTL でキャッシュに焼き付き、そのページは1か月「判定できず」を出し続ける。
+ * エラーにもならないので原因が分からない。形が違ったら投げて、キャッシュに
+ * 到達させないこと。
+ *
+ * 逆に、確率が割れただけの「判定できず」は正常な応答なので普通にキャッシュする。
+ * 消すと、一番判定の難しいページで開くたびに課金されることになる。
+ */
+function checkAnswers(raw, questions, lang) {
+  const answers = raw?.answers;
+  const bad = (why) =>
+    tagged(new Error(t("errShape", lang, { detail: why })), "shape");
+  if (!answers || typeof answers !== "object") throw bad("no answers object");
+
+  const num = (v) => typeof v === "number" && Number.isFinite(v);
+  for (const [key, q] of Object.entries(questions)) {
+    const a = answers[key];
+    if (!a || typeof a !== "object") throw bad(`missing answer: ${key}`);
+
+    if (q.type === "choice") {
+      const allowed = Object.keys(q.criteria);
+      if (!allowed.includes(a.choice)) throw bad(`${key}.choice=${a.choice}`);
+      if (!num(a.confidence) || a.confidence < 0 || a.confidence > 1) {
+        throw bad(`${key}.confidence=${a.confidence}`);
+      }
+    } else if (q.type === "score") {
+      if (!num(a.score) || a.score < 0 || a.score > q.criteria.length - 1) {
+        throw bad(`${key}.score=${a.score}`);
+      }
+    } else if (q.type === "noul") {
+      if (!num(a.noul) || a.noul < 0 || a.noul > 1) throw bad(`${key}.noul=${a.noul}`);
+    }
+  }
+  return answers;
+}
+
 async function callJev(state, questions, lang) {
   const { apiKey } = await chrome.storage.local.get("apiKey");
   if (!apiKey) throw new Error(t("errNoKey", lang));
@@ -97,7 +136,9 @@ async function callJev(state, questions, lang) {
     const detail = await res.text().catch(() => "");
     throw new Error(t("errHttp", lang, { status: res.status, detail: detail.slice(0, 200) }));
   }
-  return res.json();
+
+  const raw = await res.json().catch(() => null);
+  return { ...raw, answers: checkAnswers(raw, questions, lang) };
 }
 
 // --- 判定本体 -------------------------------------------------------------
@@ -486,6 +527,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       } else if (msg.type === "serpConfig") {
         // content script に定数を持たせないため、上限もここから配る。
         const config = await loadConfig();
+        const lang = resolveLang(config);
         sendResponse({
           ok: true,
           snippetMode: !!config.serp?.snippet,
@@ -496,9 +538,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           debounceMs: SERP.debounceMs,
           // content script に文言を持たせない
           labels: {
-            check: t("serpCheck", resolveLang(config)),
-            checking: t("serpChecking", resolveLang(config)),
-            failed: t("serpCheckFailed", resolveLang(config)),
+            check: t("serpCheck", lang),
+            checking: t("serpChecking", lang),
+            failed: t("serpCheckFailed", lang),
+            undecided: t("undecided", lang),
+            undecidedNote: t("serpUndecidedNote", lang),
           },
         });
       } else if (msg.type === "serpLookup") {

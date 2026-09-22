@@ -219,7 +219,6 @@
       if (chip.dataset.pvBusy) return;
 
       const url = chip.dataset.pvUrl;
-      const before = chip.textContent;
       chip.dataset.pvBusy = "1";
       chip.textContent = limits.labels.checking;
 
@@ -231,8 +230,11 @@
         // 入れ子になった親の結果を塗ってしまう（Google は結果を入れ子にする）。
         paint(chip.parentElement, res.verdict, url);
       } else if (res?.ok) {
-        // 取れたが confidence が足りない。断定しないので何も言わない。
-        chip.textContent = before;
+        // 取れたが確信度が閾値に届かなかった。断定はしないが、黙って元に戻すと
+        // 「押しても何も起きない」にしか見えないので、そう言う。
+        chip.classList.add("pv-failed");
+        chip.textContent = limits.labels.undecided;
+        chip.title = limits.labels.undecidedNote;
       } else {
         chip.classList.add("pv-failed");
         chip.textContent = limits.labels.failed;

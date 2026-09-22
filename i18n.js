@@ -91,6 +91,10 @@ const S = {
   serpCheck: { en: "check", ja: "本文で確かめる" },
   serpChecking: { en: "checking…", ja: "取得中…" },
   serpCheckFailed: { en: "could not read", ja: "読めず" },
+  serpUndecidedNote: {
+    en: "The page was read and judged, but no class was clear enough to state.",
+    ja: "本文は読めて判定もしましたが、断定できるほど確信度が高くありませんでした。",
+  },
 
   errFetch: {
     en: "Could not fetch that page.",
@@ -115,6 +119,10 @@ const S = {
     ja: "レート制限に達しました。少し待って再試行してください。",
   },
   errHttp: { en: "Jev error {status}: {detail}", ja: "Jev エラー {status}: {detail}" },
+  errShape: {
+    en: "Jev answered in an unexpected shape ({detail}). Nothing was saved.",
+    ja: "Jev の応答が想定外の形でした（{detail}）。保存はしていません。",
+  },
   errUnsupported: { en: "This page cannot be judged.", ja: "このページは判定できません。" },
   errUnreadable: { en: "Could not read the page contents.", ja: "ページの内容を読み取れませんでした。" },
 
