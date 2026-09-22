@@ -28,44 +28,46 @@ export const GENRE_CATALOG = {
   commerce: {
     name: { en: "Selling", ja: "販売・宣伝" },
     criteria:
-      "A page whose purpose is to make the reader buy, subscribe to, or sign up for something. Includes storefronts, landing pages, and ranking or comparison articles written to drive a purchase.",
+      "The page leads the reader to a purchase, subscription, application, or sign-up: it shows prices or plans, cart, apply or free-trial buttons, 'see it on Amazon / Rakuten / Yahoo' buttons, or it ranks and compares products whose links carry affiliate parameters. Not for a first-person account of using one thing, even when that links to a shop.",
   },
   experience: {
     name: { en: "First-hand", ja: "体験・レビュー" },
     criteria:
-      "An account of the author's own experience with the subject, or an evaluation of it. The purpose is to tell the reader what it was actually like.",
+      "The author reports what happened when they themselves used, visited, bought, or tried the subject, with particulars only that use would produce: how long they used it, what arrived, what went wrong, what they compared it with. Not for rankings or round-ups of many products with no sign the author used any of them.",
   },
   news: {
     name: { en: "News", ja: "ニュース・報道" },
-    criteria: "Journalistic reporting of a recent event by a news outlet or wire service.",
+    criteria:
+      "Third-person reporting of a recent event, with a date and attributed sources or quotes, and nothing offered to the reader. Not for a press release issued by the organisation it is about.",
   },
   explainer: {
     name: { en: "Reference", ja: "解説・資料" },
     criteria:
-      "Neutral explanation, tutorial, technical documentation, specification, or encyclopedic reference. The purpose is to teach or to put something on record.",
+      "Explains how something works or how to do it - tutorial, documentation, specification, glossary, encyclopedic article - and the reader is not asked to buy, apply, or sign up. Not for a 'what is X / how to choose X' article that ends in a recommended product or affiliate links.",
   },
   discussion: {
     name: { en: "Discussion", ja: "議論・コミュニティ" },
     criteria:
-      "A forum thread, Q&A page, social feed, or comment-driven page where the substance comes from many participants.",
+      "Most of the text comes from many participants: a forum thread, a Q&A page, a social feed, or a page whose substance is its comments.",
   },
 
   // --- 詳細プリセットで使う分割ラベル ---
   affiliate: {
     name: { en: "Affiliate", ja: "アフィリエイト" },
     criteria:
-      "A review- or ranking-shaped article whose main purpose is to earn a referral commission on outbound links.",
+      "Shaped like a review or a ranking, and its product links carry affiliate parameters or point at an affiliate network.",
     splits: "commerce",
   },
   ecommerce: {
     name: { en: "Storefront", ja: "通販・商品ページ" },
-    criteria: "A storefront or product detail page where the item itself can be bought on this page.",
+    criteria:
+      "A storefront or product detail page: the item, its price and a cart or order button are on this page.",
     splits: "commerce",
   },
   official: {
     name: { en: "Official", ja: "公式情報" },
     criteria:
-      "Information the organization publishes about itself: corporate notices, support pages, specifications, IR, policies.",
+      "An organisation writing about itself on its own site or its own account: company profile, notices, support pages, specifications, IR, policies, recruitment notes. Nothing is being sold on the page itself.",
     splits: "explainer",
   },
   opinion: {
@@ -86,9 +88,19 @@ export const GENRE_CATALOG = {
 };
 
 export const OTHER_KEY = "other";
+
+/**
+ * 該当なし。Choice には必ず置く（コードの約束）が、書き方に罠がある。
+ *
+ * 「上のどれにも当てはまらない」というメタな文にすると、他のラベルが決定的に
+ * 一致しないページでは常に真になり、迷ったぶんの確率を全部吸い込む。実測で
+ * 会社の note ページが該当なし 80% / 公式情報 1%未満 になった。
+ * 他のラベルと同じ粒度で「具体的にどういうページか」を書くこと。
+ */
 export const OTHER_LABEL = {
   name: { en: "None of these", ja: "該当なし" },
-  criteria: "None of the above describe the purpose of this page.",
+  criteria:
+    "The page has no editorial content to judge: a sign-in or error screen, a search result or tag listing, a bare index of links, a paywall or consent wall, or a page with too little text to tell what it is.",
 };
 
 /* ------------------------------------------------------------------ *
